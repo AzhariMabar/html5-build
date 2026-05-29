@@ -6,8 +6,8 @@ namespace Html5Build.Editor
     public class CanvasModel
     {
         public string GameName;
-        public int    ReferenceWidth;
-        public int    ReferenceHeight;
+        public int    ReferenceWidth;   // from CanvasScaler.referenceResolution.x
+        public int    ReferenceHeight;  // from CanvasScaler.referenceResolution.y
         public Color  BackgroundColor;
         public List<UiElement> Children = new List<UiElement>();
     }
@@ -18,28 +18,31 @@ namespace Html5Build.Editor
         public string Type;    // image | button | text | container
         public bool   Active;
 
-        // Raw RectTransform
+        // Raw RectTransform data (for Scene tab display)
         public Vector2 AnchorMin;
         public Vector2 AnchorMax;
         public Vector2 AnchoredPosition;
         public Vector2 SizeDelta;
         public Vector2 Pivot;
 
-        // CSS rect relative to nearest positioned parent (canvas-local px)
-        public float CssLeft;
-        public float CssTop;
-        public float CssWidth;
-        public float CssHeight;
+        // CSS values — computed from RectTransform math
+        // Uses calc(anchor% + offset_px) for responsive 1:1 with Unity anchors
+        public string CssLeft;    // e.g. "calc(50% - 80px)"  or "0px"  or "100%"
+        public string CssTop;     // e.g. "calc(50% + 291px)" or "0px"
+        public string CssWidth;   // e.g. "160px"             or "100%"
+        public string CssHeight;  // e.g. "30px"              or "100%"
 
         // CSS transform
-        public float  Rotation;     // local rotation Z (degrees)
-        public Vector2 PivotForOrigin; // copy of Pivot for transform-origin
+        public float   ScaleX    = 1f;   // from rt.localScale.x
+        public float   ScaleY    = 1f;   // from rt.localScale.y
+        public float   Rotation  = 0f;   // from rt.localEulerAngles.z (positive = Unity CCW)
+        public Vector2 PivotForOrigin;   // copy of Pivot for CSS transform-origin
 
-        // Image / Panel
+        // Visuals
         public Color  Color     = Color.white;
         public string SpritePath;
 
-        // Text (TMP or Legacy)
+        // Text
         public string TextContent;
         public float  FontSize;
         public Color  TextColor  = Color.white;

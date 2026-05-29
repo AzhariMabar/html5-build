@@ -59,6 +59,7 @@ namespace Html5Build.Editor
 
                     case "text":
                         sb.AppendLine($"{pad}<div id=\"{id}\" class=\"ui ui-text\" style=\"{style}\">{HtmlEsc(el.TextContent ?? "")}</div>");
+                        // text nodes don't recurse (uncommon to have UI children inside text)
                         break;
 
                     case "image":
@@ -69,7 +70,7 @@ namespace Html5Build.Editor
                         sb.AppendLine($"{pad}</div>");
                         break;
 
-                    default: // container
+                    default: // container / panel
                         sb.AppendLine($"{pad}<div id=\"{id}\" class=\"ui\" style=\"{style}\">");
                         WriteElements(sb, el.Children, indent + 1);
                         sb.AppendLine($"{pad}</div>");
@@ -83,42 +84,45 @@ namespace Html5Build.Editor
         {
             var sb = new StringBuilder();
 
-            // ── Layout ────────────────────────────────────────────────────────
-            sb.Append($"left:{el.CssLeft:F1}px;");
-            sb.Append($"top:{el.CssTop:F1}px;");
-            sb.Append($"width:{el.CssWidth:F1}px;");
-            sb.Append($"height:{el.CssHeight:F1}px;");
+            // ── Position & size (from calc() formulas) ────────────────────────
+            sb.Append($"left:{el.CssLeft};");
+            sb.Append($"top:{el.CssTop};");
+            sb.Append($"width:{el.CssWidth};");
+            sb.Append($"height:{el.CssHeight};");
 
-            // ── Transform: rotation + pivot-based origin ──────────────────────
-            // Unity CSS rotation direction: positive Z = clockwise on screen = positive CSS degrees
-            bool hasRotation = Mathf.Abs(el.Rotation) > 0.01f;
-            bool nonDefaultPivot = !Mathf.Approximately(el.PivotForOrigin.x, 0.5f) ||
-                                   !Mathf.Approximately(el.PivotForOrigin.y, 0.5f);
-            if (hasRotation || nonDefaultPivot)
+            // ── Transform: scale + rotation ───────────────────────────────────
+            // Scale: CSS localScale (CSS transform cascades to children, just like Unity)
+            // Rotation: Unity positive Z = CCW → negate for CSS (CSS positive = CW)
+            bool hasScale = Mathf.Abs(el.ScaleX - 1f) > 0.001f || Mathf.Abs(el.ScaleY - 1f) > 0.001f;
+            bool hasRot   = Mathf.Abs(el.Rotation) > 0.01f;
+
+            if (hasScale || hasRot)
             {
-                // CSS transform-origin: X = pivot.x (0=left 100=right), Y = (1-pivot.y) (0=top 100=bottom)
-                float originX = el.PivotForOrigin.x * 100f;
-                float originY = (1f - el.PivotForOrigin.y) * 100f;
-                sb.Append($"transform-origin:{originX:F0}% {originY:F0}%;");
-                if (hasRotation)
-                    sb.Append($"transform:rotate({el.Rotation:F2}deg);");
+                // transform-origin = pivot (CSS Y-down, so 1-pivot.y)
+                float ox = el.PivotForOrigin.x * 100f;
+                float oy = (1f - el.PivotForOrigin.y) * 100f;
+                sb.Append($"transform-origin:{ox:F0}% {oy:F0}%;");
+
+                sb.Append("transform:");
+                if (hasScale)
+                    sb.Append(Mathf.Approximately(el.ScaleX, el.ScaleY)
+                        ? $"scale({el.ScaleX:F4})"
+                        : $"scale({el.ScaleX:F4},{el.ScaleY:F4})");
+                if (hasRot)
+                    // Negate: Unity CCW positive → CSS CW positive
+                    sb.Append($"rotate({-el.Rotation:F2}deg)");
+                sb.Append(";");
             }
 
             // ── Background ────────────────────────────────────────────────────
-            string src = SrcRef(el.SpritePath);
             if (el.Type != "text")
             {
-                if (src != null)
-                {
-                    // Image from sprite - background handled by <img> child
-                }
-                else if (!IsInvisible(el.Color))
-                {
+                string src = SrcRef(el.SpritePath);
+                if (src == null && !IsInvisible(el.Color))
                     sb.Append($"background:{CssRgba(el.Color)};");
-                }
             }
 
-            // ── Text styles ───────────────────────────────────────────────────
+            // ── Text ──────────────────────────────────────────────────────────
             if (el.Type == "text")
             {
                 sb.Append("display:flex;");
@@ -140,7 +144,7 @@ namespace Html5Build.Editor
         private static bool IsInvisible(Color c) => c.a < 0.01f;
 
         private static string SrcRef(string p) =>
-            (!string.IsNullOrEmpty(p)) ? "src/" + System.IO.Path.GetFileName(p) : null;
+            !string.IsNullOrEmpty(p) ? "src/" + System.IO.Path.GetFileName(p) : null;
 
         private static string HtmlEsc(string s) =>
             s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
