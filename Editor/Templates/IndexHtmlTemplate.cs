@@ -19,9 +19,10 @@ namespace Html5Build.Editor
             sb.AppendLine("        :root { --rs: 1; }");
             sb.AppendLine("        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }");
             sb.AppendLine("        html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }");
-            // #_wrapper: full-screen flex container that centers #_app
+            // #_wrapper: full-screen container; clips overflow from FILL-mode canvas
             sb.AppendLine("        #_wrapper { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }");
-            // #_app: scales with --rs so it always fits the viewport proportionally
+            // #_app: FILL mode — always covers full viewport, excess is clipped by wrapper.
+            // width/height = reference × --rs; --rs = max(vw/refW, vh/refH) set by app.js.
             sb.AppendLine($"        #_app {{ position: relative; width: calc({m.ReferenceWidth}px * var(--rs)); height: calc({m.ReferenceHeight}px * var(--rs)); overflow: hidden; background: {CssRgba(m.BackgroundColor)}; flex-shrink: 0; }}");
             sb.AppendLine("        .ui { position: absolute; }");
             sb.AppendLine("        .ui-btn { border: none; outline: none; cursor: pointer; padding: 0; }");

@@ -23,11 +23,12 @@ namespace Html5Build.Editor
             sb.AppendLine($"    var REF_H = {m.ReferenceHeight};");
             sb.AppendLine();
             sb.AppendLine("    function resize() {");
-            // clientWidth/Height = reliable CSS pixels (excludes scrollbar, works in Firefox responsive mode)
             sb.AppendLine("        var w = document.documentElement.clientWidth;");
             sb.AppendLine("        var h = document.documentElement.clientHeight;");
-            // FIT: show full canvas, maintain aspect ratio, center with flex
-            sb.AppendLine("        var scale = Math.min(w / REF_W, h / REF_H);");
+            // FILL: canvas always covers full viewport, overflow is clipped.
+            // scale = max(scaleX, scaleY) so neither axis has black bars.
+            // Equivalent to CSS background-size: cover.
+            sb.AppendLine("        var scale = Math.max(w / REF_W, h / REF_H);");
             sb.AppendLine("        document.documentElement.style.setProperty('--rs', scale);");
             sb.AppendLine("    }");
             sb.AppendLine();
