@@ -21,7 +21,7 @@ namespace Html5Build.Editor
             sb.AppendLine("        #_wrapper { position: absolute; transform-origin: 0 0; }");
             sb.AppendLine($"        #_app {{ position: relative; width: {m.ReferenceWidth}px; height: {m.ReferenceHeight}px; overflow: hidden; background: {CssRgba(m.BackgroundColor)}; }}");
             sb.AppendLine("        .ui { position: absolute; }");
-            sb.AppendLine("        .ui-btn { border: none; outline: none; background: transparent; cursor: pointer; padding: 0; }");
+            sb.AppendLine("        .ui-btn { border: none; outline: none; cursor: pointer; padding: 0; }");
             sb.AppendLine("        .ui-img > img { width: 100%; height: 100%; object-fit: fill; display: block; }");
             sb.AppendLine("        .ui-text { overflow: hidden; white-space: pre-wrap; word-break: break-word; }");
             sb.AppendLine("    </style>");
@@ -58,9 +58,7 @@ namespace Html5Build.Editor
                         break;
 
                     case "text":
-                        string txt = HtmlEsc(el.TextContent ?? "");
-                        sb.AppendLine($"{pad}<div id=\"{id}\" class=\"ui ui-text\" style=\"{style}\">{txt}</div>");
-                        // Text elements don't recurse (unlikely to have meaningful UI children)
+                        sb.AppendLine($"{pad}<div id=\"{id}\" class=\"ui ui-text\" style=\"{style}\">{HtmlEsc(el.TextContent ?? "")}</div>");
                         break;
 
                     case "image":
@@ -85,23 +83,45 @@ namespace Html5Build.Editor
         {
             var sb = new StringBuilder();
 
-            // Layout (always absolute, in parent-relative px)
-            sb.Append($"left:{el.CssLeft:F1}px;top:{el.CssTop:F1}px;width:{el.CssWidth:F1}px;height:{el.CssHeight:F1}px;");
+            // ── Layout ────────────────────────────────────────────────────────
+            sb.Append($"left:{el.CssLeft:F1}px;");
+            sb.Append($"top:{el.CssTop:F1}px;");
+            sb.Append($"width:{el.CssWidth:F1}px;");
+            sb.Append($"height:{el.CssHeight:F1}px;");
 
-            // Background: use color when no sprite (or sprite unavailable)
-            string src = SrcRef(el.SpritePath);
-            bool hasSprite = src != null;
-
-            if (!hasSprite && el.Type != "text")
+            // ── Transform: rotation + pivot-based origin ──────────────────────
+            // Unity CSS rotation direction: positive Z = clockwise on screen = positive CSS degrees
+            bool hasRotation = Mathf.Abs(el.Rotation) > 0.01f;
+            bool nonDefaultPivot = !Mathf.Approximately(el.PivotForOrigin.x, 0.5f) ||
+                                   !Mathf.Approximately(el.PivotForOrigin.y, 0.5f);
+            if (hasRotation || nonDefaultPivot)
             {
-                if (!IsInvisible(el.Color))
-                    sb.Append($"background:{CssRgba(el.Color)};");
+                // CSS transform-origin: X = pivot.x (0=left 100=right), Y = (1-pivot.y) (0=top 100=bottom)
+                float originX = el.PivotForOrigin.x * 100f;
+                float originY = (1f - el.PivotForOrigin.y) * 100f;
+                sb.Append($"transform-origin:{originX:F0}% {originY:F0}%;");
+                if (hasRotation)
+                    sb.Append($"transform:rotate({el.Rotation:F2}deg);");
             }
 
-            // Text-specific
+            // ── Background ────────────────────────────────────────────────────
+            string src = SrcRef(el.SpritePath);
+            if (el.Type != "text")
+            {
+                if (src != null)
+                {
+                    // Image from sprite - background handled by <img> child
+                }
+                else if (!IsInvisible(el.Color))
+                {
+                    sb.Append($"background:{CssRgba(el.Color)};");
+                }
+            }
+
+            // ── Text styles ───────────────────────────────────────────────────
             if (el.Type == "text")
             {
-                sb.Append($"display:flex;");
+                sb.Append("display:flex;");
                 sb.Append($"align-items:{el.TextAlignV};");
                 sb.Append($"justify-content:{el.TextAlignH};");
                 sb.Append($"color:{CssRgba(el.TextColor)};");
@@ -109,11 +129,6 @@ namespace Html5Build.Editor
                 sb.Append("font-family:Arial,sans-serif;");
                 sb.Append("pointer-events:none;user-select:none;");
             }
-
-            // Button background image handled by inner <img> (set above)
-            // Button state: use image color as tint if no sprite
-            if (el.Type == "button" && !hasSprite && !IsInvisible(el.Color))
-                sb.Append($"background:{CssRgba(el.Color)};");
 
             return sb.ToString();
         }

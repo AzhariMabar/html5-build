@@ -9,43 +9,46 @@ namespace Html5Build.Editor
 {
     public static class SceneReader
     {
-        // State shared during a single scan
-        private static float _sf;           // screen-to-reference scale factor
-        private static float _canvasLeft;   // canvas world-space origin X
-        private static float _canvasBottom; // canvas world-space origin Y
-        private static int   _refW;
-        private static int   _refH;
+        // Shared scan state
+        private static float _sfX, _sfY;       // world-pixels per canvas-local unit (X and Y)
+        private static float _canvasLeft;       // canvas world BL corner X
+        private static float _canvasBottom;     // canvas world BL corner Y
+        private static int   _refW, _refH;      // canvas local size → used as HTML reference
 
         // ─────────────────────────────────────────────────────────────────────
         public static CanvasModel ReadActiveScene()
         {
-            // Flush all pending layout recalculations
             Canvas.ForceUpdateCanvases();
 
             Canvas root = FindRootCanvas();
             if (root == null)
-                throw new Exception("No root Canvas found. Make sure a Canvas is in the active scene.");
+                throw new Exception("No root Canvas found in the active scene.");
 
-            // Reference resolution
-            var scaler = root.GetComponent<CanvasScaler>();
-            _refW = 1080; _refH = 1920;
-            if (scaler != null && scaler.uiScaleMode == CanvasScaler.ScaleMode.ScaleWithScreenSize)
-            {
-                _refW = Mathf.RoundToInt(scaler.referenceResolution.x);
-                _refH = Mathf.RoundToInt(scaler.referenceResolution.y);
-            }
-
-            // Scale factor = ratio of canvas world-rect to reference resolution.
-            // This handles any game-view size without requiring root.scaleFactor.
+            // ── Canvas world extent ───────────────────────────────────────────
             var canvasRt = root.GetComponent<RectTransform>();
             var cc = new Vector3[4];
             canvasRt.GetWorldCorners(cc);
+            // cc[0]=BL, cc[1]=TL, cc[2]=TR, cc[3]=BR
             _canvasLeft   = cc[0].x;
             _canvasBottom = cc[0].y;
             float canvasWorldW = cc[2].x - cc[0].x;
-            _sf = canvasWorldW > 0.01f ? canvasWorldW / _refW : 1f;
+            float canvasWorldH = cc[1].y - cc[0].y;
 
-            // Background = first Image child of canvas
+            // ── CRITICAL: use canvas LOCAL rect (not reference resolution)
+            // canvasRt.rect gives the ACTUAL canvas size in local units,
+            // which CanvasScaler may expand/shrink from the reference resolution
+            // depending on the device/game-view aspect ratio.
+            // Dividing by this gives the correct world→canvas-local scale.
+            float canvasLocalW = Mathf.Abs(canvasRt.rect.width);
+            float canvasLocalH = Mathf.Abs(canvasRt.rect.height);
+            _sfX = canvasLocalW > 0.01f ? canvasWorldW / canvasLocalW : 1f;
+            _sfY = canvasLocalH > 0.01f ? canvasWorldH / canvasLocalH : 1f;
+
+            // HTML reference = actual canvas local size (matches what Unity shows)
+            _refW = Mathf.RoundToInt(canvasLocalW);
+            _refH = Mathf.RoundToInt(canvasLocalH);
+
+            // ── Background ───────────────────────────────────────────────────
             Color bg = new Color(0.08f, 0.08f, 0.08f);
             foreach (Transform child in root.transform)
             {
@@ -61,8 +64,6 @@ namespace Html5Build.Editor
                 BackgroundColor = bg,
             };
 
-            // parentCssLeft/Top = 0,0 because children of canvas are
-            // positioned relative to the canvas div (top-left of canvas = CSS 0,0)
             foreach (Transform child in root.transform)
                 ReadElement(child, model.Children, 0f, 0f);
 
@@ -70,34 +71,53 @@ namespace Html5Build.Editor
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        // parentCssLeft/Top: absolute CSS coordinates (Y-down) of the parent's
-        // top-left corner within the canvas. Used to compute relative positioning.
+        // parentCssLeft/Top: canvas-space CSS (Y-down) position of parent top-left.
+        // Used to compute child's position relative to parent div.
         // ─────────────────────────────────────────────────────────────────────
         private static void ReadElement(
             Transform t, List<UiElement> list,
             float parentCssLeft, float parentCssTop)
         {
             if (!t.gameObject.activeSelf) return;
-
             var rt = t.GetComponent<RectTransform>();
             if (rt == null) return;
 
-            // ── World corners → reference-resolution coordinates ──────────────
-            // GetWorldCorners accounts for localScale, rotation, and all parent
-            // transforms automatically. corners: [0]=BL, [1]=TL, [2]=TR, [3]=BR
-            var corners = new Vector3[4];
-            rt.GetWorldCorners(corners);
+            // ── Position via world-space pivot ────────────────────────────────
+            // rt.position = world position of the RectTransform's pivot point.
+            // This is UNAFFECTED by the element's own rotation, so we always get
+            // the "anchor" position regardless of transform.
+            float pivotWorldX = rt.position.x;
+            float pivotWorldY = rt.position.y;
 
-            float refLeft   = (corners[0].x - _canvasLeft)   / _sf;
-            float refBottom = (corners[0].y - _canvasBottom)  / _sf;
-            float refTop    = (corners[1].y - _canvasBottom)  / _sf;
-            float refRight  = (corners[2].x - _canvasLeft)    / _sf;
+            // Convert world → canvas-local reference units
+            float pivotRefX = (pivotWorldX - _canvasLeft)   / _sfX;
+            float pivotRefY = (pivotWorldY - _canvasBottom)  / _sfY;  // Y-up
 
-            // CSS coordinate system: Y increases downward from canvas top
-            float cssLeftGlobal = refLeft;
-            float cssTopGlobal  = _refH - refTop;
-            float cssW          = Mathf.Max(0f, refRight  - refLeft);
-            float cssH          = Mathf.Max(0f, refTop    - refBottom);
+            // ── Size via local rect × lossyScale ──────────────────────────────
+            // rt.rect.width/height is the computed LOCAL size (accounts for stretch,
+            // sizeDelta, etc.) BEFORE any scale is applied.
+            // rt.lossyScale is the cumulative world scale (canvas + parents + own).
+            // Dividing by _sfX/_sfY converts from world-pixels back to canvas-local units.
+            float scaleX  = _sfX > 0.001f ? rt.lossyScale.x / _sfX : 1f;
+            float scaleY  = _sfY > 0.001f ? rt.lossyScale.y / _sfY : 1f;
+            float visualW = Mathf.Abs(rt.rect.width)  * scaleX;
+            float visualH = Mathf.Abs(rt.rect.height) * scaleY;
+
+            // ── Canvas-space CSS position (Y-down) ────────────────────────────
+            // Top-left of the UN-ROTATED bounding box in canvas CSS space.
+            // left = pivot_x - pivot_fraction_of_width
+            // top  = (refH - pivot_y_up) - (height * (1 - pivot.y))
+            //       = refH - pivot_y_up - height + height*pivot.y
+            //       = refH - (pivot_y_up + height*(1-pivot.y))
+            float cssLeftGlobal = pivotRefX - visualW * rt.pivot.x;
+            float cssTopGlobal  = _refH - (pivotRefY + visualH * (1f - rt.pivot.y));
+
+            // ── Rotation ──────────────────────────────────────────────────────
+            // localEulerAngles.z = element's OWN rotation, not cumulative.
+            // CSS transform: rotate(Z deg) with same sign as Unity
+            // (Unity left-handed positive Z = clockwise on screen = same as CSS positive).
+            float rotZ = rt.localEulerAngles.z;
+            if (rotZ > 180f) rotZ -= 360f;  // normalize to [-180, 180]
 
             var el = new UiElement
             {
@@ -108,17 +128,18 @@ namespace Html5Build.Editor
                 AnchoredPosition = rt.anchoredPosition,
                 SizeDelta        = rt.sizeDelta,
                 Pivot            = rt.pivot,
-                // Position relative to parent's top-left in CSS space
                 CssLeft          = cssLeftGlobal - parentCssLeft,
                 CssTop           = cssTopGlobal  - parentCssTop,
-                CssWidth         = cssW,
-                CssHeight        = cssH,
+                CssWidth         = visualW,
+                CssHeight        = visualH,
+                Rotation         = rotZ,
+                PivotForOrigin   = rt.pivot,
             };
 
-            // ── Detect component type ─────────────────────────────────────────
+            // ── Component detection ───────────────────────────────────────────
             var imgComp    = t.GetComponent<Image>();
             var btnComp    = t.GetComponent<Button>();
-            var tmpText    = t.GetComponent<TMP_Text>();          // covers both UGUI + World
+            var tmpText    = t.GetComponent<TMP_Text>();
             var legacyText = t.GetComponent<Text>();
 
             if (btnComp    != null) el.Type = "button";
@@ -126,30 +147,24 @@ namespace Html5Build.Editor
             else if (imgComp   != null) el.Type = "image";
             else                       el.Type = "container";
 
-            // ── Image / sprite ────────────────────────────────────────────────
             if (imgComp != null)
             {
                 el.Color = imgComp.color;
                 if (imgComp.sprite != null)
                 {
                     string path = AssetDatabase.GetAssetPath(imgComp.sprite);
-                    // Only include real user assets (not built-in Unity sprites)
                     if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
                         el.SpritePath = path;
                 }
             }
 
-            // ── Text ──────────────────────────────────────────────────────────
             if (tmpText != null)
             {
                 el.TextContent = tmpText.text;
                 el.TextColor   = tmpText.color;
-
-                // Font size: TMP fontSize is in local units; scale to visual px
-                float localH = Mathf.Abs(rt.rect.height);
-                float scaleY = (localH > 0.01f && cssH > 0.01f) ? cssH / localH : 1f;
-                el.FontSize  = tmpText.fontSize * scaleY;
-
+                // Font size: TMP value is in local units; scale to canvas-local visual px
+                float localH   = Mathf.Abs(rt.rect.height);
+                el.FontSize    = localH > 0.01f ? tmpText.fontSize * (visualH / localH) : tmpText.fontSize;
                 ReadTmpAlign(tmpText.alignment, out el.TextAlignH, out el.TextAlignV);
             }
             else if (legacyText != null)
@@ -157,31 +172,22 @@ namespace Html5Build.Editor
                 el.TextContent = legacyText.text;
                 el.TextColor   = legacyText.color;
                 el.FontSize    = legacyText.fontSize;
-                el.TextAlignH  = legacyText.alignment == TextAnchor.UpperLeft   ||
-                                 legacyText.alignment == TextAnchor.MiddleLeft  ||
-                                 legacyText.alignment == TextAnchor.LowerLeft   ? "flex-start" :
-                                 legacyText.alignment == TextAnchor.UpperRight  ||
-                                 legacyText.alignment == TextAnchor.MiddleRight ||
-                                 legacyText.alignment == TextAnchor.LowerRight  ? "flex-end" : "center";
-                el.TextAlignV  = legacyText.alignment == TextAnchor.UpperLeft   ||
-                                 legacyText.alignment == TextAnchor.UpperCenter ||
-                                 legacyText.alignment == TextAnchor.UpperRight  ? "flex-start" :
-                                 legacyText.alignment == TextAnchor.LowerLeft   ||
-                                 legacyText.alignment == TextAnchor.LowerCenter ||
-                                 legacyText.alignment == TextAnchor.LowerRight  ? "flex-end" : "center";
+                el.TextAlignH  = LegacyAlignH(legacyText.alignment);
+                el.TextAlignV  = LegacyAlignV(legacyText.alignment);
             }
 
             list.Add(el);
 
-            // ── Recurse (pass this element's absolute CSS position as parent) ─
+            // ── Recurse ───────────────────────────────────────────────────────
+            // Pass this element's canvas-space top-left as parent reference for children.
+            // For non-rotated parents this is exact; for rotated parents children
+            // are positioned in the CSS rotated-parent coordinate space (correct via CSS inheritance).
             foreach (Transform child in t)
                 ReadElement(child, el.Children, cssLeftGlobal, cssTopGlobal);
         }
 
         // ── TMP alignment → CSS flex values ──────────────────────────────────
-        // TextAlignmentOptions bit layout: bits 0–7 = horizontal, bits 8–15 = vertical
-        // H: Left=1, Center=2, Right=4, Justified=8
-        // V: Top=1, Middle=2, Bottom=4
+        // TextAlignmentOptions bits: 0–7 = H (Left=1, Center=2, Right=4), 8–15 = V (Top=1, Mid=2, Bot=4)
         private static void ReadTmpAlign(TextAlignmentOptions a, out string h, out string v)
         {
             int flags = (int)a;
@@ -190,7 +196,6 @@ namespace Html5Build.Editor
                 1 => "flex-start",
                 2 => "center",
                 4 => "flex-end",
-                8 => "space-between",
                 _ => "center",
             };
             v = ((flags >> 8) & 0xFF) switch
@@ -201,6 +206,18 @@ namespace Html5Build.Editor
                 _ => "center",
             };
         }
+
+        private static string LegacyAlignH(TextAnchor a) =>
+            (a == TextAnchor.UpperLeft || a == TextAnchor.MiddleLeft || a == TextAnchor.LowerLeft)
+                ? "flex-start"
+                : (a == TextAnchor.UpperRight || a == TextAnchor.MiddleRight || a == TextAnchor.LowerRight)
+                    ? "flex-end" : "center";
+
+        private static string LegacyAlignV(TextAnchor a) =>
+            (a == TextAnchor.UpperLeft || a == TextAnchor.UpperCenter || a == TextAnchor.UpperRight)
+                ? "flex-start"
+                : (a == TextAnchor.LowerLeft || a == TextAnchor.LowerCenter || a == TextAnchor.LowerRight)
+                    ? "flex-end" : "center";
 
         private static Canvas FindRootCanvas()
         {
