@@ -1,6 +1,6 @@
 {
-    "name": "Mabar.PhaserExporter.Editor",
-    "rootNamespace": "Mabar.PhaserExporter.Editor",
+    "name": "Html5Build.Editor",
+    "rootNamespace": "Html5Build.Editor",
     "references": [],
     "includePlatforms": ["Editor"],
     "excludePlatforms": [],

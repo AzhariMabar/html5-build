@@ -1,14 +1,13 @@
 {
-  "name": "com.mabar.phaser-exporter",
+  "name": "com.html5build.exporter",
   "version": "0.1.0",
-  "displayName": "MABAR PhaserJS HTML5 Exporter",
-  "description": "Export and scaffold HTML5 canvas games using PhaserJS directly from the Unity Editor.",
+  "displayName": "HTML5 Build",
+  "description": "Export Unity Canvas UI to responsive HTML5 — reads anchors, pivot, size from scene automatically.",
   "unity": "2022.1",
   "author": {
-    "name": "MABAR Creative",
-    "email": "mabar.creativ@gmail.com",
-    "url": "https://github.com/mabar-creativ"
+    "name": "HTML5 Build",
+    "email": "mabar.creativ@gmail.com"
   },
-  "keywords": ["phaser", "html5", "export", "webgame", "canvas"],
+  "keywords": ["html5", "export", "canvas", "ui", "build"],
   "type": "tool"
 }
