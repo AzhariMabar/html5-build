@@ -24,11 +24,12 @@ namespace Html5Build.Editor
             sb.AppendLine();
             sb.AppendLine("    function resize() {");
             sb.AppendLine("        var w = document.documentElement.clientWidth;");
-            sb.AppendLine("        var h = document.documentElement.clientHeight;");
-            // FILL: canvas always covers full viewport, overflow is clipped.
-            // scale = max(scaleX, scaleY) so neither axis has black bars.
-            // Equivalent to CSS background-size: cover.
-            sb.AppendLine("        var scale = Math.max(w / REF_W, h / REF_H);");
+            // Scale by WIDTH only — canvas always fills 100% of viewport width.
+            // Height follows the aspect ratio (calc(1920px * --rs)) and may overflow
+            // vertically; the wrapper clips it with overflow:hidden.
+            // When viewport < 1080: scale < 1, all elements shrink proportionally.
+            // Anchor positions remain correct relative to their anchor points.
+            sb.AppendLine("        var scale = w / REF_W;");
             sb.AppendLine("        document.documentElement.style.setProperty('--rs', scale);");
             sb.AppendLine("    }");
             sb.AppendLine();

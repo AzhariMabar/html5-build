@@ -19,11 +19,13 @@ namespace Html5Build.Editor
             sb.AppendLine("        :root { --rs: 1; }");
             sb.AppendLine("        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }");
             sb.AppendLine("        html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }");
-            // #_wrapper: full-screen container; clips overflow from FILL-mode canvas
-            sb.AppendLine("        #_wrapper { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }");
-            // #_app: FILL mode — always covers full viewport, excess is clipped by wrapper.
-            // width/height = reference × --rs; --rs = max(vw/refW, vh/refH) set by app.js.
-            sb.AppendLine($"        #_app {{ position: relative; width: calc({m.ReferenceWidth}px * var(--rs)); height: calc({m.ReferenceHeight}px * var(--rs)); overflow: hidden; background: {CssRgba(m.BackgroundColor)}; flex-shrink: 0; }}");
+            // #_wrapper: fixed full-viewport clip zone. No centering — top-left is always origin.
+            sb.AppendLine("        #_wrapper { position: fixed; inset: 0; overflow: hidden; }");
+            // #_app:
+            //   width  = 100% of viewport (--rs = vw/1080, so calc(1080px * rs) = vw exactly)
+            //   height = proportional to width (may overflow viewport height → clipped by wrapper)
+            //   No min-height. Anchor positions always relative to top-left of canvas.
+            sb.AppendLine($"        #_app {{ position: absolute; top: 0; left: 0; width: 100%; height: calc({m.ReferenceHeight}px * var(--rs)); overflow: hidden; background: {CssRgba(m.BackgroundColor)}; }}");
             sb.AppendLine("        .ui { position: absolute; }");
             sb.AppendLine("        .ui-btn { border: none; outline: none; cursor: pointer; padding: 0; }");
             sb.AppendLine("        .ui-img > img { width: 100%; height: 100%; object-fit: fill; display: block; }");
