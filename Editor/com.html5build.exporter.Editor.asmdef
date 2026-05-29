@@ -1,7 +1,9 @@
 {
     "name": "Html5Build.Editor",
     "rootNamespace": "Html5Build.Editor",
-    "references": [],
+    "references": [
+        "Unity.TextMeshPro"
+    ],
     "includePlatforms": ["Editor"],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
