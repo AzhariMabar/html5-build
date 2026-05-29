@@ -16,10 +16,13 @@ namespace Html5Build.Editor
             sb.AppendLine("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />");
             sb.AppendLine($"    <title>{HtmlEsc(m.GameName)}</title>");
             sb.AppendLine("    <style>");
+            sb.AppendLine("        :root { --rs: 1; }");
             sb.AppendLine("        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }");
-            sb.AppendLine("        body { background: #000; overflow: hidden; }");
-            sb.AppendLine("        #_wrapper { position: absolute; transform-origin: 0 0; }");
-            sb.AppendLine($"        #_app {{ position: relative; width: {m.ReferenceWidth}px; height: {m.ReferenceHeight}px; overflow: hidden; background: {CssRgba(m.BackgroundColor)}; }}");
+            sb.AppendLine("        html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }");
+            // #_wrapper: full-screen flex container that centers #_app
+            sb.AppendLine("        #_wrapper { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }");
+            // #_app: scales with --rs so it always fits the viewport proportionally
+            sb.AppendLine($"        #_app {{ position: relative; width: calc({m.ReferenceWidth}px * var(--rs)); height: calc({m.ReferenceHeight}px * var(--rs)); overflow: hidden; background: {CssRgba(m.BackgroundColor)}; flex-shrink: 0; }}");
             sb.AppendLine("        .ui { position: absolute; }");
             sb.AppendLine("        .ui-btn { border: none; outline: none; cursor: pointer; padding: 0; }");
             sb.AppendLine("        .ui-img > img { width: 100%; height: 100%; object-fit: fill; display: block; }");
@@ -129,7 +132,7 @@ namespace Html5Build.Editor
                 sb.Append($"align-items:{el.TextAlignV};");
                 sb.Append($"justify-content:{el.TextAlignH};");
                 sb.Append($"color:{CssRgba(el.TextColor)};");
-                sb.Append($"font-size:{el.FontSize:F0}px;");
+                sb.Append($"font-size:calc({el.FontSize:F0}px * var(--rs));");
                 sb.Append("font-family:Arial,sans-serif;");
                 sb.Append("pointer-events:none;user-select:none;");
             }

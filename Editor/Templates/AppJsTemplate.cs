@@ -12,23 +12,23 @@ namespace Html5Build.Editor
             sb.AppendLine($"// {m.GameName} — HTML5 Build");
             sb.AppendLine($"// Reference: {m.ReferenceWidth}x{m.ReferenceHeight}");
             sb.AppendLine();
+
+            // CSS Custom Property approach:
+            // --rs (reference scale) = how much to scale reference-resolution pixels
+            // #_app width/height = calc(RefW/H px * var(--rs))
+            // Element offsets     = calc(Anchor% ± Offset px * var(--rs))
+            // All done via CSS — no transform hacks that cause overflow issues.
             sb.AppendLine("(function () {");
             sb.AppendLine($"    var REF_W = {m.ReferenceWidth};");
             sb.AppendLine($"    var REF_H = {m.ReferenceHeight};");
             sb.AppendLine();
             sb.AppendLine("    function resize() {");
-            sb.AppendLine("        var wrapper  = document.getElementById('_wrapper');");
-            sb.AppendLine("        var scaleX   = window.innerWidth  / REF_W;");
-            sb.AppendLine("        var scaleY   = window.innerHeight / REF_H;");
-            sb.AppendLine("        var scale    = Math.min(scaleX, scaleY);   // FIT (no crop)");
-            sb.AppendLine("        var offsetX  = (window.innerWidth  - REF_W * scale) / 2;");
-            sb.AppendLine("        var offsetY  = (window.innerHeight - REF_H * scale) / 2;");
-            sb.AppendLine("        wrapper.style.transform       = 'scale(' + scale + ')';");
-            sb.AppendLine("        wrapper.style.transformOrigin = '0 0';");
-            sb.AppendLine("        wrapper.style.left            = offsetX + 'px';");
-            sb.AppendLine("        wrapper.style.top             = offsetY + 'px';");
-            sb.AppendLine("        wrapper.style.width           = REF_W + 'px';");
-            sb.AppendLine("        wrapper.style.height          = REF_H + 'px';");
+            // clientWidth/Height = reliable CSS pixels (excludes scrollbar, works in Firefox responsive mode)
+            sb.AppendLine("        var w = document.documentElement.clientWidth;");
+            sb.AppendLine("        var h = document.documentElement.clientHeight;");
+            // FIT: show full canvas, maintain aspect ratio, center with flex
+            sb.AppendLine("        var scale = Math.min(w / REF_W, h / REF_H);");
+            sb.AppendLine("        document.documentElement.style.setProperty('--rs', scale);");
             sb.AppendLine("    }");
             sb.AppendLine();
             sb.AppendLine("    window.addEventListener('resize', resize);");
@@ -37,7 +37,6 @@ namespace Html5Build.Editor
             sb.AppendLine("})();");
             sb.AppendLine();
             sb.AppendLine("// ─── Button handlers ─────────────────────────────────────────────────────");
-            sb.AppendLine("// Each button exported from Unity gets a handler stub below.");
 
             var buttons = new List<UiElement>();
             CollectButtons(m.Children, buttons);

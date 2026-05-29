@@ -178,18 +178,23 @@ namespace Html5Build.Editor
         private static string CalcHeight(RectTransform rt) =>
             Calc((rt.anchorMax.y - rt.anchorMin.y) * 100f, rt.sizeDelta.y);
 
-        // Produce a CSS value: pure %, pure px, or calc(X% ± Y.Ypx)
+        // Produce a responsive CSS value.
+        // % part = anchor fraction (auto-responsive via parent size)
+        // px part = offset in reference-resolution pixels, scaled by --rs so it
+        //           shrinks/grows with the viewport alongside the % anchor.
         private static string Calc(float pct, float px)
         {
             bool hasPct = Mathf.Abs(pct) > 0.01f;
             bool hasPx  = Mathf.Abs(px)  > 0.01f;
 
             if (!hasPct && !hasPx) return "0px";
-            if (!hasPct)            return $"{px:F1}px";
-            if (!hasPx)             return $"{pct:F1}%";
-
+            // Pure percentage — fully responsive, no --rs needed
+            if (!hasPx)  return $"{pct:F1}%";
+            // Pure pixel — scale with --rs
+            if (!hasPct) return $"calc({px:F1}px * var(--rs))";
+            // Mixed: anchor% + scaled offset
             string sign = px >= 0f ? "+" : "-";
-            return $"calc({pct:F1}% {sign} {Mathf.Abs(px):F1}px)";
+            return $"calc({pct:F1}% {sign} {Mathf.Abs(px):F1}px * var(--rs))";
         }
 
         // ─────────────────────────────────────────────────────────────────────
