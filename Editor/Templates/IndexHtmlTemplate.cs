@@ -115,26 +115,52 @@ namespace Html5Build.Editor
 
             if (el.Type != "text")
             {
-                string src = SrcRef(el.SpritePath);
+                string src      = SrcRef(el.SpritePath);
+                bool   hasTint  = src != null && !IsWhite(el.Color);
+                string colorStr = CssRgba(el.Color);
+
                 if (el.ImageType == Image.Type.Filled)
                 {
                     if (src != null)
                     {
-                        sb.Append($"background:url('{src}') center/100% 100% no-repeat;");
+                        // Sprite as base; tint via multiply blend if not white
+                        if (hasTint)
+                        {
+                            sb.Append($"background:{colorStr} url('{src}') center/100% 100% no-repeat;");
+                            sb.Append("background-blend-mode:multiply;");
+                        }
+                        else
+                            sb.Append($"background:url('{src}') center/100% 100% no-repeat;");
                         sb.Append(FillMask(el));
                     }
                     else if (!IsInvisible(el.Color))
                         sb.Append(FillBackground(el));
                 }
                 else if (el.ImageType == Image.Type.Tiled && src != null)
-                    sb.Append($"background:url('{src}') repeat;background-size:auto;");
+                {
+                    sb.Append($"background:{colorStr} url('{src}') repeat;");
+                    sb.Append("background-size:auto;");
+                    if (hasTint) sb.Append("background-blend-mode:multiply;");
+                }
                 else
                 {
                     if (src != null)
-                        sb.Append($"background:url('{src}') center/100% 100% no-repeat;");
+                    {
+                        if (hasTint)
+                        {
+                            sb.Append($"background:{colorStr} url('{src}') center/100% 100% no-repeat;");
+                            sb.Append("background-blend-mode:multiply;");
+                        }
+                        else
+                            sb.Append($"background:url('{src}') center/100% 100% no-repeat;");
+                    }
                     else if (!IsInvisible(el.Color))
-                        sb.Append($"background:{CssRgba(el.Color)};");
+                        sb.Append($"background:{colorStr};");
                 }
+
+                // Alpha — applies to whole element (including children, same as Unity CanvasGroup)
+                if (el.Color.a < 0.999f)
+                    sb.Append($"opacity:{el.Color.a:F3};");
             }
 
             if (el.Type == "text")
@@ -232,6 +258,10 @@ namespace Html5Build.Editor
             $"rgba({R(c)},{G(c)},{B(c)},{c.a:F3})";
 
         private static bool IsInvisible(Color c) => c.a < 0.01f;
+
+        // White tint = no visual change on sprite, skip multiply blend
+        private static bool IsWhite(Color c) =>
+            c.r > 0.99f && c.g > 0.99f && c.b > 0.99f;
 
         private static string SrcRef(string p) =>
             !string.IsNullOrEmpty(p) ? "src/" + System.IO.Path.GetFileName(p) : null;
