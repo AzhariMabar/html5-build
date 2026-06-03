@@ -131,7 +131,10 @@ namespace Html5Build.Editor
                 {
                     string path = AssetDatabase.GetAssetPath(imgComp.sprite);
                     if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
-                        el.SpritePath = path;
+                    {
+                        el.SpritePath   = path;
+                        el.SpriteBorder = imgComp.sprite.border; // x=left, y=bottom, z=right, w=top
+                    }
                 }
             }
 

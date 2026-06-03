@@ -136,6 +136,10 @@ namespace Html5Build.Editor
                     else if (!IsInvisible(el.Color))
                         sb.Append(FillBackground(el));
                 }
+                else if (el.ImageType == Image.Type.Sliced && src != null)
+                {
+                    SlicedBackground(sb, el, src, hasTint, colorStr);
+                }
                 else if (el.ImageType == Image.Type.Tiled && src != null)
                 {
                     sb.Append($"background:{colorStr} url('{src}') repeat;");
@@ -175,6 +179,42 @@ namespace Html5Build.Editor
             }
 
             return sb.ToString();
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Image.Type.Sliced — 9-slice via CSS border-image
+        // SpriteBorder: x=left, y=bottom, z=right, w=top (sprite pixels, top-right-bottom-left in CSS)
+        private static void SlicedBackground(StringBuilder sb, UiElement el, string src, bool hasTint, string colorStr)
+        {
+            float bT = el.SpriteBorder.w;
+            float bR = el.SpriteBorder.z;
+            float bB = el.SpriteBorder.y;
+            float bL = el.SpriteBorder.x;
+
+            bool hasSlice = bT + bR + bB + bL > 0.1f;
+
+            if (!hasSlice)
+            {
+                // No border defined — fall back to simple stretch
+                if (hasTint) { sb.Append($"background:{colorStr} url('{src}') center/100% 100% no-repeat;"); sb.Append("background-blend-mode:multiply;"); }
+                else           sb.Append($"background:url('{src}') center/100% 100% no-repeat;");
+                return;
+            }
+
+            // border-image handles 9-slice: corners fixed, edges stretch, center filled.
+            // border-width scales with --rs so corners stay proportional across viewports.
+            sb.Append($"border-style:solid;border-color:transparent;");
+            sb.Append($"border-width:calc({bT:F1}px * var(--rs)) calc({bR:F1}px * var(--rs)) calc({bB:F1}px * var(--rs)) calc({bL:F1}px * var(--rs));");
+            sb.Append($"border-image-source:url('{src}');");
+            // slice values = pixels in source image (unitless = px units); fill keeps center visible
+            sb.Append($"border-image-slice:{bT:F0} {bR:F0} {bB:F0} {bL:F0} fill;");
+            // width:1 = render border at 1× the border-width set above
+            sb.Append("border-image-width:1;");
+            sb.Append("border-image-repeat:stretch;");
+
+            // Tint via pseudo-overlay when color is not white
+            if (hasTint)
+                sb.Append($"background:{colorStr};");
         }
 
         // ─────────────────────────────────────────────────────────────────────
