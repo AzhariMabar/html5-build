@@ -56,9 +56,9 @@ namespace Html5Build.Editor
                 switch (el.Type)
                 {
                     case "button":
+                        // Sprite rendering is handled by BuildStyle (background / border-image).
+                        // No <img> tag — it would render on top and cover CSS effects (Sliced, Filled).
                         sb.AppendLine($"{pad}<button id=\"{id}\" class=\"ui ui-btn\" style=\"{style}\">");
-                        if (!string.IsNullOrEmpty(el.SpritePath))
-                            sb.AppendLine($"{pad}    <img src=\"{SrcRef(el.SpritePath)}\" alt=\"\" style=\"position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;\" />");
                         WriteElements(sb, el.Children, indent + 1);
                         sb.AppendLine($"{pad}</button>");
                         break;
@@ -69,7 +69,9 @@ namespace Html5Build.Editor
 
                     case "image":
                         sb.AppendLine($"{pad}<div id=\"{id}\" class=\"ui ui-img\" style=\"{style}\">");
-                        if (!string.IsNullOrEmpty(el.SpritePath))
+                        // Sprite for image elements uses <img> so it responds to object-fit.
+                        // BuildStyle skips background-url for image type to avoid double render.
+                        if (!string.IsNullOrEmpty(el.SpritePath) && el.ImageType == Image.Type.Simple)
                             sb.AppendLine($"{pad}    <img src=\"{SrcRef(el.SpritePath)}\" alt=\"\" />");
                         WriteElements(sb, el.Children, indent + 1);
                         sb.AppendLine($"{pad}</div>");
