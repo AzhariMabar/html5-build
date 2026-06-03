@@ -27,7 +27,8 @@ namespace Html5Build.Editor
             // Anchor % positions (top, center, bottom) map directly to viewport edges.
             sb.AppendLine($"        #_app {{ position: absolute; inset: 0; overflow: hidden; background: {CssRgba(m.BackgroundColor)}; }}");
             sb.AppendLine("        .ui { position: absolute; }");
-            sb.AppendLine("        .ui-btn { border: none; outline: none; cursor: pointer; padding: 0; }");
+            // appearance:none removes native button chrome (prevents override of border-image, background, etc.)
+            sb.AppendLine("        .ui-btn { appearance: none; -webkit-appearance: none; border: none; outline: none; cursor: pointer; padding: 0; background: transparent; }");
             sb.AppendLine("        .ui-img > img { width: 100%; height: 100%; object-fit: fill; display: block; }");
             sb.AppendLine("        .ui-text { overflow: hidden; white-space: pre-wrap; word-break: break-word; }");
             sb.AppendLine("    </style>");
@@ -214,10 +215,13 @@ namespace Html5Build.Editor
             float pB = bB / sH * 100f;
             float pL = bL / sW * 100f;
 
-            sb.Append("border:none;");
+            // border-style must NOT be 'none' or border-image won't paint.
+            // border-width:0 keeps layout unchanged; border-image-width handles visual size.
+            sb.Append("border:0 solid transparent;");
             sb.Append($"border-image-source:url('{src}');");
             sb.Append($"border-image-slice:{pT:F2}% {pR:F2}% {pB:F2}% {pL:F2}% fill;");
             sb.Append($"border-image-width:{pT:F2}% {pR:F2}% {pB:F2}% {pL:F2}%;");
+            sb.Append("border-image-outset:0;");
             sb.Append("border-image-repeat:stretch;");
 
             if (hasTint)
