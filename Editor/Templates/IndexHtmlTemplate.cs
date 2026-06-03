@@ -183,36 +183,41 @@ namespace Html5Build.Editor
 
         // ─────────────────────────────────────────────────────────────────────
         // Image.Type.Sliced — 9-slice via CSS border-image
-        // SpriteBorder: x=left, y=bottom, z=right, w=top (sprite pixels, top-right-bottom-left in CSS)
+        // SpriteBorder: x=left, y=bottom, z=right, w=top (sprite pixels)
         private static void SlicedBackground(StringBuilder sb, UiElement el, string src, bool hasTint, string colorStr)
         {
             float bT = el.SpriteBorder.w;
             float bR = el.SpriteBorder.z;
             float bB = el.SpriteBorder.y;
             float bL = el.SpriteBorder.x;
+            float sW = el.SpriteWidth  > 0.1f ? el.SpriteWidth  : 192f;
+            float sH = el.SpriteHeight > 0.1f ? el.SpriteHeight : 192f;
 
             bool hasSlice = bT + bR + bB + bL > 0.1f;
 
             if (!hasSlice)
             {
-                // No border defined — fall back to simple stretch
                 if (hasTint) { sb.Append($"background:{colorStr} url('{src}') center/100% 100% no-repeat;"); sb.Append("background-blend-mode:multiply;"); }
                 else           sb.Append($"background:url('{src}') center/100% 100% no-repeat;");
                 return;
             }
 
-            // border-image handles 9-slice: corners fixed, edges stretch, center filled.
-            // border-width scales with --rs so corners stay proportional across viewports.
-            sb.Append($"border-style:solid;border-color:transparent;");
-            sb.Append($"border-width:calc({bT:F1}px * var(--rs)) calc({bR:F1}px * var(--rs)) calc({bB:F1}px * var(--rs)) calc({bL:F1}px * var(--rs));");
+            // Express border as % of source image so slice + rendered width are consistent.
+            // border-image-slice %  = pixels cut from source (% of source dimension)
+            // border-image-width %  = rendered corner size (% of element dimension)
+            // Using % for BOTH ensures corners scale proportionally at any viewport size.
+            // border: none → layout is untouched, content renders on top of border-image.
+            float pT = bT / sH * 100f;
+            float pR = bR / sW * 100f;
+            float pB = bB / sH * 100f;
+            float pL = bL / sW * 100f;
+
+            sb.Append("border:none;");
             sb.Append($"border-image-source:url('{src}');");
-            // slice values = pixels in source image (unitless = px units); fill keeps center visible
-            sb.Append($"border-image-slice:{bT:F0} {bR:F0} {bB:F0} {bL:F0} fill;");
-            // width:1 = render border at 1× the border-width set above
-            sb.Append("border-image-width:1;");
+            sb.Append($"border-image-slice:{pT:F2}% {pR:F2}% {pB:F2}% {pL:F2}% fill;");
+            sb.Append($"border-image-width:{pT:F2}% {pR:F2}% {pB:F2}% {pL:F2}%;");
             sb.Append("border-image-repeat:stretch;");
 
-            // Tint via pseudo-overlay when color is not white
             if (hasTint)
                 sb.Append($"background:{colorStr};");
         }

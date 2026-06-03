@@ -133,7 +133,9 @@ namespace Html5Build.Editor
                     if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
                     {
                         el.SpritePath   = path;
-                        el.SpriteBorder = imgComp.sprite.border; // x=left, y=bottom, z=right, w=top
+                        el.SpriteBorder  = imgComp.sprite.border; // x=left, y=bottom, z=right, w=top
+                        el.SpriteWidth   = imgComp.sprite.rect.width;
+                        el.SpriteHeight  = imgComp.sprite.rect.height;
                     }
                 }
             }

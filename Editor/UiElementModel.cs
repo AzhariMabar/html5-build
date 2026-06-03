@@ -40,9 +40,11 @@ namespace Html5Build.Editor
         public Vector2 PivotForOrigin;   // copy of Pivot for CSS transform-origin
 
         // Visuals
-        public Color   Color       = Color.white;
+        public Color   Color        = Color.white;
         public string  SpritePath;
-        public Vector4 SpriteBorder;  // x=left, y=bottom, z=right, w=top (sprite pixels)
+        public Vector4 SpriteBorder; // x=left, y=bottom, z=right, w=top (sprite pixels)
+        public float   SpriteWidth;  // sprite rect width  in pixels
+        public float   SpriteHeight; // sprite rect height in pixels
 
         // Image fill (only relevant when Type == "image" or "button" with Image component)
         public Image.Type       ImageType  = Image.Type.Simple;
