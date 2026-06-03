@@ -13,23 +13,19 @@ namespace Html5Build.Editor
             sb.AppendLine($"// Reference: {m.ReferenceWidth}x{m.ReferenceHeight}");
             sb.AppendLine();
 
-            // CSS Custom Property approach:
-            // --rs (reference scale) = how much to scale reference-resolution pixels
-            // #_app width/height = calc(RefW/H px * var(--rs))
-            // Element offsets     = calc(Anchor% ± Offset px * var(--rs))
-            // All done via CSS — no transform hacks that cause overflow issues.
+            // --rs = uniform scale that fits the reference canvas inside the viewport (contain).
+            // #_app is then centered so the background color fills any remaining space seamlessly.
             sb.AppendLine("(function () {");
             sb.AppendLine($"    var REF_W = {m.ReferenceWidth};");
             sb.AppendLine($"    var REF_H = {m.ReferenceHeight};");
             sb.AppendLine();
             sb.AppendLine("    function resize() {");
             sb.AppendLine("        var w = document.documentElement.clientWidth;");
-            // Scale by WIDTH only — canvas always fills 100% of viewport width.
-            // Height follows the aspect ratio (calc(1920px * --rs)) and may overflow
-            // vertically; the wrapper clips it with overflow:hidden.
-            // When viewport < 1080: scale < 1, all elements shrink proportionally.
-            // Anchor positions remain correct relative to their anchor points.
-            sb.AppendLine("        var scale = w / REF_W;");
+            sb.AppendLine("        var h = document.documentElement.clientHeight;");
+            // min() = "Expand" mode: scale by the more constrained axis.
+            // #_app fills the full viewport, so anchors map to viewport edges.
+            // Bottom-anchored elements stay at the bottom, top at the top.
+            sb.AppendLine("        var scale = Math.min(w / REF_W, h / REF_H);");
             sb.AppendLine("        document.documentElement.style.setProperty('--rs', scale);");
             sb.AppendLine("    }");
             sb.AppendLine();

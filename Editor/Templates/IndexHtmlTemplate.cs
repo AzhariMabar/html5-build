@@ -18,14 +18,13 @@ namespace Html5Build.Editor
             sb.AppendLine("    <style>");
             sb.AppendLine("        :root { --rs: 1; }");
             sb.AppendLine("        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }");
-            sb.AppendLine("        html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }");
-            // #_wrapper: fixed full-viewport clip zone. No centering — top-left is always origin.
+            // Body background matches the game — no visible letterbox on any screen size.
+            sb.AppendLine($"        html, body {{ width: 100%; height: 100%; overflow: hidden; background: {CssRgba(m.BackgroundColor)}; }}");
             sb.AppendLine("        #_wrapper { position: fixed; inset: 0; overflow: hidden; }");
-            // #_app:
-            //   width  = 100% of viewport (--rs = vw/1080, so calc(1080px * rs) = vw exactly)
-            //   height = proportional to width (may overflow viewport height → clipped by wrapper)
-            //   No min-height. Anchor positions always relative to top-left of canvas.
-            sb.AppendLine($"        #_app {{ position: absolute; top: 0; left: 0; width: 100%; height: calc({m.ReferenceHeight}px * var(--rs)); overflow: hidden; background: {CssRgba(m.BackgroundColor)}; }}");
+            // #_app fills the entire viewport (inset:0).
+            // --rs = min(w/REF_W, h/REF_H) so elements scale uniformly without overflow.
+            // Anchor % positions (top, center, bottom) map directly to viewport edges.
+            sb.AppendLine($"        #_app {{ position: absolute; inset: 0; overflow: hidden; background: {CssRgba(m.BackgroundColor)}; }}");
             sb.AppendLine("        .ui { position: absolute; }");
             sb.AppendLine("        .ui-btn { border: none; outline: none; cursor: pointer; padding: 0; }");
             sb.AppendLine("        .ui-img > img { width: 100%; height: 100%; object-fit: fill; display: block; }");
@@ -65,7 +64,6 @@ namespace Html5Build.Editor
 
                     case "text":
                         sb.AppendLine($"{pad}<div id=\"{id}\" class=\"ui ui-text\" style=\"{style}\">{HtmlEsc(el.TextContent ?? "")}</div>");
-                        // text nodes don't recurse (uncommon to have UI children inside text)
                         break;
 
                     case "image":
@@ -76,7 +74,7 @@ namespace Html5Build.Editor
                         sb.AppendLine($"{pad}</div>");
                         break;
 
-                    default: // container / panel
+                    default:
                         sb.AppendLine($"{pad}<div id=\"{id}\" class=\"ui\" style=\"{style}\">");
                         WriteElements(sb, el.Children, indent + 1);
                         sb.AppendLine($"{pad}</div>");
@@ -90,21 +88,16 @@ namespace Html5Build.Editor
         {
             var sb = new StringBuilder();
 
-            // ── Position & size (from calc() formulas) ────────────────────────
             sb.Append($"left:{el.CssLeft};");
             sb.Append($"top:{el.CssTop};");
             sb.Append($"width:{el.CssWidth};");
             sb.Append($"height:{el.CssHeight};");
 
-            // ── Transform: scale + rotation ───────────────────────────────────
-            // Scale: CSS localScale (CSS transform cascades to children, just like Unity)
-            // Rotation: Unity positive Z = CCW → negate for CSS (CSS positive = CW)
             bool hasScale = Mathf.Abs(el.ScaleX - 1f) > 0.001f || Mathf.Abs(el.ScaleY - 1f) > 0.001f;
             bool hasRot   = Mathf.Abs(el.Rotation) > 0.01f;
 
             if (hasScale || hasRot)
             {
-                // transform-origin = pivot (CSS Y-down, so 1-pivot.y)
                 float ox = el.PivotForOrigin.x * 100f;
                 float oy = (1f - el.PivotForOrigin.y) * 100f;
                 sb.Append($"transform-origin:{ox:F0}% {oy:F0}%;");
@@ -115,12 +108,10 @@ namespace Html5Build.Editor
                         ? $"scale({el.ScaleX:F4})"
                         : $"scale({el.ScaleX:F4},{el.ScaleY:F4})");
                 if (hasRot)
-                    // Negate: Unity CCW positive → CSS CW positive
                     sb.Append($"rotate({-el.Rotation:F2}deg)");
                 sb.Append(";");
             }
 
-            // ── Background ────────────────────────────────────────────────────
             if (el.Type != "text")
             {
                 string src = SrcRef(el.SpritePath);
@@ -128,7 +119,6 @@ namespace Html5Build.Editor
                     sb.Append($"background:{CssRgba(el.Color)};");
             }
 
-            // ── Text ──────────────────────────────────────────────────────────
             if (el.Type == "text")
             {
                 sb.Append("display:flex;");
