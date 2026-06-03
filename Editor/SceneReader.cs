@@ -120,7 +120,13 @@ namespace Html5Build.Editor
             // ── Visuals ───────────────────────────────────────────────────────
             if (imgComp != null)
             {
-                el.Color = imgComp.color;
+                el.Color      = imgComp.color;
+                el.ImageType  = imgComp.type;
+                el.FillMethod = imgComp.fillMethod;
+                el.FillAmount = imgComp.fillAmount;
+                el.FillOrigin = imgComp.fillOrigin;
+                el.Clockwise  = imgComp.fillClockwise;
+
                 if (imgComp.sprite != null)
                 {
                     string path = AssetDatabase.GetAssetPath(imgComp.sprite);

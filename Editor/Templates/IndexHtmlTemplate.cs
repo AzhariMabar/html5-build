@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Html5Build.Editor
 {
@@ -115,8 +116,25 @@ namespace Html5Build.Editor
             if (el.Type != "text")
             {
                 string src = SrcRef(el.SpritePath);
-                if (src == null && !IsInvisible(el.Color))
-                    sb.Append($"background:{CssRgba(el.Color)};");
+                if (el.ImageType == Image.Type.Filled)
+                {
+                    if (src != null)
+                    {
+                        sb.Append($"background:url('{src}') center/100% 100% no-repeat;");
+                        sb.Append(FillMask(el));
+                    }
+                    else if (!IsInvisible(el.Color))
+                        sb.Append(FillBackground(el));
+                }
+                else if (el.ImageType == Image.Type.Tiled && src != null)
+                    sb.Append($"background:url('{src}') repeat;background-size:auto;");
+                else
+                {
+                    if (src != null)
+                        sb.Append($"background:url('{src}') center/100% 100% no-repeat;");
+                    else if (!IsInvisible(el.Color))
+                        sb.Append($"background:{CssRgba(el.Color)};");
+                }
             }
 
             if (el.Type == "text")
@@ -131,6 +149,82 @@ namespace Html5Build.Editor
             }
 
             return sb.ToString();
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Image.Type.Filled — solid color rendered as CSS gradient
+        private static string FillBackground(UiElement el)
+        {
+            string c    = CssRgba(el.Color);
+            string grad = FillGradient(el, c, "transparent");
+            return $"background:{grad};";
+        }
+
+        // Image.Type.Filled — sprite as background, gradient as mask
+        private static string FillMask(UiElement el)
+        {
+            string grad = FillGradient(el, "white", "transparent");
+            return $"-webkit-mask:{grad};mask:{grad};";
+        }
+
+        // Build the CSS gradient string for a fill effect.
+        // filled = visible color, empty = hidden color.
+        private static string FillGradient(UiElement el, string filled, string empty)
+        {
+            float amount = Mathf.Clamp01(el.FillAmount);
+
+            switch (el.FillMethod)
+            {
+                case Image.FillMethod.Radial360:
+                {
+                    // Unity OriginRadial360: 0=Bottom, 1=Right, 2=Top, 3=Left
+                    // CSS conic-gradient from-angle (clockwise from 12 o'clock):
+                    //   Bottom=180, Right=90, Top=0, Left=270
+                    float[] origins = { 180f, 90f, 0f, 270f };
+                    float   origin  = origins[el.FillOrigin % 4];
+                    float   sweep   = amount * 360f;
+                    float   start   = el.Clockwise ? origin : origin - sweep;
+                    return $"conic-gradient(from {start:F1}deg,{filled} 0deg,{filled} {sweep:F1}deg,{empty} {sweep:F1}deg)";
+                }
+                case Image.FillMethod.Radial180:
+                {
+                    // Unity OriginRadial180: 0=Bottom, 1=Left, 2=Top, 3=Right
+                    float[] origins = { 180f, 270f, 0f, 90f };
+                    float   origin  = origins[el.FillOrigin % 4];
+                    float   sweep   = amount * 180f;
+                    float   start   = el.Clockwise ? origin : origin - sweep;
+                    return $"conic-gradient(from {start:F1}deg,{filled} 0deg,{filled} {sweep:F1}deg,{empty} {sweep:F1}deg)";
+                }
+                case Image.FillMethod.Radial90:
+                {
+                    // Unity OriginRadial90: 0=BottomLeft, 1=TopLeft, 2=TopRight, 3=BottomRight
+                    float[] origins = { 180f, 270f, 0f, 90f };
+                    float   origin  = origins[el.FillOrigin % 4];
+                    float   sweep   = amount * 90f;
+                    float   start   = el.Clockwise ? origin : origin - sweep;
+                    return $"conic-gradient(from {start:F1}deg,{filled} 0deg,{filled} {sweep:F1}deg,{empty} {sweep:F1}deg)";
+                }
+                case Image.FillMethod.Horizontal:
+                {
+                    // Unity OriginHorizontal: 0=Left, 1=Right
+                    float pct = amount * 100f;
+                    if (el.FillOrigin == 0) // Left → Right
+                        return $"linear-gradient(to right,{filled} {pct:F1}%,{empty} {pct:F1}%)";
+                    else                    // Right → Left
+                        return $"linear-gradient(to left,{filled} {pct:F1}%,{empty} {pct:F1}%)";
+                }
+                case Image.FillMethod.Vertical:
+                {
+                    // Unity OriginVertical: 0=Bottom, 1=Top
+                    float pct = amount * 100f;
+                    if (el.FillOrigin == 0) // Bottom → Top
+                        return $"linear-gradient(to top,{filled} {pct:F1}%,{empty} {pct:F1}%)";
+                    else                    // Top → Bottom
+                        return $"linear-gradient(to bottom,{filled} {pct:F1}%,{empty} {pct:F1}%)";
+                }
+                default:
+                    return $"linear-gradient({filled},{filled})";
+            }
         }
 
         // ─────────────────────────────────────────────────────────────────────

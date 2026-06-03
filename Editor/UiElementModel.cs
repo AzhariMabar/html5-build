@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Html5Build.Editor
 {
@@ -41,6 +42,13 @@ namespace Html5Build.Editor
         // Visuals
         public Color  Color     = Color.white;
         public string SpritePath;
+
+        // Image fill (only relevant when Type == "image" or "button" with Image component)
+        public Image.Type       ImageType  = Image.Type.Simple;
+        public Image.FillMethod FillMethod = Image.FillMethod.Radial360;
+        public float            FillAmount = 1f;
+        public int              FillOrigin = 0;
+        public bool             Clockwise  = true;
 
         // Text
         public string TextContent;
