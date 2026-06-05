@@ -26,11 +26,15 @@ namespace Html5Build.Editor
             // --rs = min(w/REF_W, h/REF_H) so elements scale uniformly without overflow.
             // Anchor % positions (top, center, bottom) map directly to viewport edges.
             sb.AppendLine($"        #_app {{ position: absolute; inset: 0; overflow: hidden; background: {CssRgba(m.BackgroundColor)}; }}");
-            sb.AppendLine("        .ui { position: absolute; }");
+            // pointer-events:none on .ui makes ALL divs/spans pass-through by default.
+            // Only buttons (.ui-btn) and elements with raycastTarget=true get pointer-events:auto.
+            // This mirrors Unity's Raycast Target system: transparent containers never block clicks.
+            sb.AppendLine("        .ui { position: absolute; pointer-events: none; }");
             // appearance:none removes native button chrome (prevents override of border-image, background, etc.)
-            sb.AppendLine("        .ui-btn { appearance: none; -webkit-appearance: none; border: none; outline: none; cursor: pointer; padding: 0; background: transparent; }");
+            sb.AppendLine("        .ui-btn { appearance: none; -webkit-appearance: none; border: none; outline: none; cursor: pointer; padding: 0; background: transparent; pointer-events: auto; }");
             sb.AppendLine("        .ui-img > img { width: 100%; height: 100%; object-fit: fill; display: block; }");
             sb.AppendLine("        .ui-text { overflow: hidden; white-space: pre-wrap; word-break: break-word; }");
+            WriteButtonStateStyles(sb, m.Children);
             sb.AppendLine("    </style>");
             sb.AppendLine("</head>");
             sb.AppendLine("<body>");
@@ -39,6 +43,7 @@ namespace Html5Build.Editor
             WriteElements(sb, m.Children, 3);
             sb.AppendLine("        </div>");
             sb.AppendLine("    </div>");
+            sb.AppendLine("    <script src=\"tweening.js\"></script>");
             sb.AppendLine("    <script src=\"app.js\"></script>");
             sb.AppendLine("</body>");
             sb.AppendLine("</html>");
@@ -57,12 +62,19 @@ namespace Html5Build.Editor
                 switch (el.Type)
                 {
                     case "button":
-                        // Sprite rendering is handled by BuildStyle (background / border-image).
-                        // No <img> tag — it would render on top and cover CSS effects (Sliced, Filled).
-                        sb.AppendLine($"{pad}<button id=\"{id}\" class=\"ui ui-btn\" style=\"{style}\">");
+                    {
+                        // All buttons: image on a separate .ui-btn-bg layer so CSS filter (hover/active)
+                        // applies only to the image — text children are NOT inside the filtered layer.
+                        string btnStyle = BuildStyle(el, skipVisuals: true) + "overflow:visible;";
+                        string disAttr  = el.BtnInteractable ? "" : " disabled";
+                        sb.AppendLine($"{pad}<button id=\"{id}\" class=\"ui ui-btn\"{disAttr} style=\"{btnStyle}\">");
+                        string imgDiv = BuildImageDivStyle(el);
+                        if (!string.IsNullOrEmpty(imgDiv))
+                            sb.AppendLine($"{pad}    <div class=\"ui-btn-bg\" style=\"position:absolute;left:0;top:0;width:100%;height:100%;{imgDiv}pointer-events:none;\"></div>");
                         WriteElements(sb, el.Children, indent + 1);
                         sb.AppendLine($"{pad}</button>");
                         break;
+                    }
 
                     case "text":
                         sb.AppendLine($"{pad}<div id=\"{id}\" class=\"ui ui-text\" style=\"{style}\">{HtmlEsc(el.TextContent ?? "")}</div>");
@@ -88,10 +100,11 @@ namespace Html5Build.Editor
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        private static string BuildStyle(UiElement el)
+        private static string BuildStyle(UiElement el, bool skipVisuals = false)
         {
             var sb = new StringBuilder();
 
+            if (!el.Active) sb.Append("display:none;");
             sb.Append($"left:{el.CssLeft};");
             sb.Append($"top:{el.CssTop};");
             sb.Append($"width:{el.CssWidth};");
@@ -116,7 +129,7 @@ namespace Html5Build.Editor
                 sb.Append(";");
             }
 
-            if (el.Type != "text")
+            if (el.Type != "text" && !skipVisuals && el.HasImage)
             {
                 string src      = SrcRef(el.SpritePath);
                 bool   hasTint  = src != null && !IsWhite(el.Color);
@@ -178,8 +191,15 @@ namespace Html5Build.Editor
                 sb.Append($"color:{CssRgba(el.TextColor)};");
                 sb.Append($"font-size:calc({el.FontSize:F0}px * var(--rs));");
                 sb.Append("font-family:Arial,sans-serif;");
-                sb.Append("pointer-events:none;user-select:none;");
+                // Text raycastTarget=true → clickable; false → pass-through (user-select:none always)
+                sb.Append(el.Raycast ? "pointer-events:auto;" : "pointer-events:none;");
+                sb.Append("user-select:none;");
             }
+
+            // Non-button elements: only add pointer-events:auto if raycastTarget is on
+            // (buttons already get it from .ui-btn CSS class)
+            if (el.Type != "button" && el.Type != "text" && el.Raycast)
+                sb.Append("pointer-events:auto;");
 
             return sb.ToString();
         }
@@ -205,28 +225,125 @@ namespace Html5Build.Editor
                 return;
             }
 
-            // Express border as % of source image so slice + rendered width are consistent.
-            // border-image-slice %  = pixels cut from source (% of source dimension)
-            // border-image-width %  = rendered corner size (% of element dimension)
-            // Using % for BOTH ensures corners scale proportionally at any viewport size.
-            // border: none → layout is untouched, content renders on top of border-image.
+            // border-image-slice: % of source image — which pixels form corners/edges.
             float pT = bT / sH * 100f;
             float pR = bR / sW * 100f;
             float pB = bB / sH * 100f;
             float pL = bL / sW * 100f;
+
+            // border-image-width: scale-compensated px so that after transform:scale(S)
+            // the visual corner = sprite border × --rs, matching Unity 9-slice exactly.
+            // Formula: border_px / scale = CSS px → CSS px × scale = border_px ✓
+            float sx = Mathf.Max(Mathf.Abs(el.ScaleX), 0.001f);
+            float sy = Mathf.Max(Mathf.Abs(el.ScaleY), 0.001f);
+            float bwT = bT / sy; float bwR = bR / sx; float bwB = bB / sy; float bwL = bL / sx;
 
             // border-style must NOT be 'none' or border-image won't paint.
             // border-width:0 keeps layout unchanged; border-image-width handles visual size.
             sb.Append("border:0 solid transparent;");
             sb.Append($"border-image-source:url('{src}');");
             sb.Append($"border-image-slice:{pT:F2}% {pR:F2}% {pB:F2}% {pL:F2}% fill;");
-            sb.Append($"border-image-width:{pT:F2}% {pR:F2}% {pB:F2}% {pL:F2}%;");
+            sb.Append($"border-image-width:calc({bwT:F3}px * var(--rs)) calc({bwR:F3}px * var(--rs)) calc({bwB:F3}px * var(--rs)) calc({bwL:F3}px * var(--rs));");
             sb.Append("border-image-outset:0;");
             sb.Append("border-image-repeat:stretch;");
 
             if (hasTint)
                 sb.Append($"background:{colorStr};");
         }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Returns the full background CSS for a button's .ui-btn-bg image layer.
+        // Handles all Image.Type values so the layer can receive CSS filter for state tinting
+        // without affecting sibling text children.
+        private static string BuildImageDivStyle(UiElement el)
+        {
+            if (!el.HasImage) return "";   // button has no Image component — no background div
+            string src      = SrcRef(el.SpritePath);
+            bool   hasTint  = src != null && !IsWhite(el.Color);
+            string colorStr = CssRgba(el.Color);
+            var    sb       = new StringBuilder();
+
+            if (el.ImageType == Image.Type.Filled)
+            {
+                if (src != null)
+                {
+                    if (hasTint) { sb.Append($"background:{colorStr} url('{src}') center/100% 100% no-repeat;"); sb.Append("background-blend-mode:multiply;"); }
+                    else           sb.Append($"background:url('{src}') center/100% 100% no-repeat;");
+                    sb.Append(FillMask(el));
+                }
+                else if (!IsInvisible(el.Color))
+                    sb.Append(FillBackground(el));
+            }
+            else if (el.ImageType == Image.Type.Sliced && src != null)
+            {
+                SlicedBackground(sb, el, src, hasTint, colorStr);
+            }
+            else if (el.ImageType == Image.Type.Tiled && src != null)
+            {
+                sb.Append($"background:{colorStr} url('{src}') repeat;background-size:auto;");
+                if (hasTint) sb.Append("background-blend-mode:multiply;");
+            }
+            else
+            {
+                if (src != null)
+                {
+                    if (hasTint) { sb.Append($"background:{colorStr} url('{src}') center/100% 100% no-repeat;"); sb.Append("background-blend-mode:multiply;"); }
+                    else           sb.Append($"background:url('{src}') center/100% 100% no-repeat;");
+                }
+                else if (!IsInvisible(el.Color))
+                    sb.Append($"background:{colorStr};");
+            }
+
+            // Alpha on the layer (Filled handles alpha via its mask gradient, skip here)
+            if (el.Color.a < 0.999f && el.ImageType != Image.Type.Filled)
+                sb.Append($"opacity:{el.Color.a:F3};");
+
+            return sb.ToString();
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Emits per-button CSS rules for Color Tint states (hover / active / disabled).
+        // Targets #id > .ui-btn-bg so only the image layer is filtered, not text children.
+        private static void WriteButtonStateStyles(StringBuilder sb, List<UiElement> elements)
+        {
+            foreach (var el in elements)
+            {
+                if (el.Type == "button")
+                {
+                    string id = SafeId(el.Name);
+
+                    float normL = Luma(el.BtnNormalColor);
+                    if (normL < 0.001f) normL = 1f;
+                    float hoverBr  = Luma(el.BtnHighlightedColor) / normL;
+                    float pressBr  = Luma(el.BtnPressedColor)     / normL;
+                    float disBr    = Luma(el.BtnDisabledColor)     / normL;
+                    float disAlpha = el.BtnDisabledColor.a;
+                    float fade     = el.BtnFadeDuration;
+
+                    sb.AppendLine($"        #{id} > .ui-btn-bg {{ transition:filter {fade:F2}s; }}");
+
+                    if (!el.BtnInteractable)
+                    {
+                        sb.AppendLine($"        #{id} > .ui-btn-bg {{ filter:brightness({disBr:F3}) opacity({disAlpha:F3}); }}");
+                        sb.AppendLine($"        #{id} {{ pointer-events:none; cursor:default; }}");
+                    }
+                    else
+                    {
+                        if (!IsClose(hoverBr, 1f))
+                            sb.AppendLine($"        #{id}:hover > .ui-btn-bg {{ filter:brightness({hoverBr:F3}); }}");
+                        if (!IsClose(pressBr, 1f))
+                            sb.AppendLine($"        #{id}:active > .ui-btn-bg {{ filter:brightness({pressBr:F3}); }}");
+                        // Disabled via JS/attribute
+                        sb.AppendLine($"        #{id}:disabled > .ui-btn-bg, #{id}[disabled] > .ui-btn-bg {{ filter:brightness({disBr:F3}) opacity({disAlpha:F3}); }}");
+                        sb.AppendLine($"        #{id}:disabled, #{id}[disabled] {{ pointer-events:none; cursor:default; }}");
+                    }
+                }
+                WriteButtonStateStyles(sb, el.Children);
+            }
+        }
+
+        private static float Luma(Color c)    => c.r * 0.299f + c.g * 0.587f + c.b * 0.114f;
+        private static bool  IsClose(float a, float b) => Mathf.Abs(a - b) < 0.01f;
 
         // ─────────────────────────────────────────────────────────────────────
         // Image.Type.Filled — solid color rendered as CSS gradient
@@ -314,8 +431,7 @@ namespace Html5Build.Editor
         private static bool IsWhite(Color c) =>
             c.r > 0.99f && c.g > 0.99f && c.b > 0.99f;
 
-        private static string SrcRef(string p) =>
-            !string.IsNullOrEmpty(p) ? "src/" + System.IO.Path.GetFileName(p) : null;
+        private static string SrcRef(string p) => AssetCopier.SrcRef(p);
 
         private static string HtmlEsc(string s) =>
             s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
