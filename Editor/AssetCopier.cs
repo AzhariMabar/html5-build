@@ -14,7 +14,7 @@ namespace Html5Build.Editor
 
             foreach (string assetPath in paths)
             {
-                if (string.IsNullOrEmpty(assetPath) || !File.Exists(assetPath)) continue;
+                if (string.IsNullOrEmpty(assetPath)) continue;
                 string dest = Path.Combine(srcDir, Path.GetFileName(assetPath));
                 CopyAndCompress(assetPath, dest);
             }
@@ -23,12 +23,31 @@ namespace Html5Build.Editor
         // Load the texture via Unity's asset pipeline (respects import settings: max size,
         // compression format, etc.), blit to a readable buffer, and re-encode as PNG.
         // Falls back to a plain file copy for non-texture assets.
+        // Resolve an AssetDatabase path (including "Packages/...") to a full disk path.
+        private static string ResolveDiskPath(string assetPath)
+        {
+            // For project assets ("Assets/...") this is just Path.GetFullPath from project root.
+            // For package assets ("Packages/com.xxx/...") Unity maps them via Library/PackageCache.
+            // AssetDatabase.GetTextMetaFilePathFromAssetPath is the reliable way to reach the cache.
+            string metaPath = AssetDatabase.GetTextMetaFilePathFromAssetPath(assetPath);
+            if (!string.IsNullOrEmpty(metaPath))
+            {
+                // Strip the trailing ".meta" to get the actual file
+                string candidate = metaPath.Length > 5 ? metaPath.Substring(0, metaPath.Length - 5) : metaPath;
+                string full = Path.GetFullPath(candidate);
+                if (File.Exists(full)) return full;
+            }
+            return Path.GetFullPath(assetPath);
+        }
+
         private static void CopyAndCompress(string assetPath, string destPath)
         {
             var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
             if (tex == null)
             {
-                File.Copy(assetPath, destPath, overwrite: true);
+                string diskPath = ResolveDiskPath(assetPath);
+                if (File.Exists(diskPath))
+                    File.Copy(diskPath, destPath, overwrite: true);
                 return;
             }
 

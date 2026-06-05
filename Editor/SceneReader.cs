@@ -37,24 +37,34 @@ namespace Html5Build.Editor
         {
             Canvas.ForceUpdateCanvases();
 
-            Canvas root = FindRootCanvas();
-            if (root == null)
+            var roots = FindRootCanvases();
+            if (roots.Count == 0)
                 throw new Exception("No root Canvas found in the active scene.");
 
-            var scaler = root.GetComponent<CanvasScaler>();
+            // Reference resolution from the first canvas that has a CanvasScaler
             _refW = 1080; _refH = 1920;
-            if (scaler != null && scaler.uiScaleMode == CanvasScaler.ScaleMode.ScaleWithScreenSize)
+            foreach (var root in roots)
             {
-                _refW = Mathf.RoundToInt(scaler.referenceResolution.x);
-                _refH = Mathf.RoundToInt(scaler.referenceResolution.y);
+                var scaler = root.GetComponent<CanvasScaler>();
+                if (scaler != null && scaler.uiScaleMode == CanvasScaler.ScaleMode.ScaleWithScreenSize)
+                {
+                    _refW = Mathf.RoundToInt(scaler.referenceResolution.x);
+                    _refH = Mathf.RoundToInt(scaler.referenceResolution.y);
+                    break;
+                }
             }
 
-            // Background color = first Image child of canvas
+            // Background color = first Image child found across all canvases
             Color bg = new Color(0.08f, 0.08f, 0.08f);
-            foreach (Transform child in root.transform)
+            bool  bgFound = false;
+            foreach (var root in roots)
             {
-                var img = child.GetComponent<Image>();
-                if (img != null) { bg = img.color; break; }
+                if (bgFound) break;
+                foreach (Transform child in root.transform)
+                {
+                    var img = child.GetComponent<Image>();
+                    if (img != null) { bg = img.color; bgFound = true; break; }
+                }
             }
 
             var model = new CanvasModel
@@ -65,23 +75,28 @@ namespace Html5Build.Editor
                 BackgroundColor = bg,
             };
 
-            foreach (Transform child in root.transform)
-                ReadElement(child, model.Children);
+            // Read children from ALL root canvases.
+            // Canvases beyond the first get a prefix (c1_, c2_, …) so their HTML IDs are unique.
+            for (int ci = 0; ci < roots.Count; ci++)
+            {
+                string prefix = ci == 0 ? "" : $"c{ci}_";
+                foreach (Transform child in roots[ci].transform)
+                    ReadElement(child, model.Children, prefix);
+            }
 
             return model;
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        private static void ReadElement(Transform t, List<UiElement> list)
+        private static void ReadElement(Transform t, List<UiElement> list, string prefix = "")
         {
-            if (!t.gameObject.activeSelf) return;
             var rt = t.GetComponent<RectTransform>();
             if (rt == null) return;
 
             var el = new UiElement
             {
-                Name             = t.gameObject.name,
-                Active           = true,
+                Name             = prefix + t.gameObject.name,
+                Active           = t.gameObject.activeSelf,
                 AnchorMin        = rt.anchorMin,
                 AnchorMax        = rt.anchorMax,
                 AnchoredPosition = rt.anchoredPosition,
@@ -120,6 +135,8 @@ namespace Html5Build.Editor
             // ── Visuals ───────────────────────────────────────────────────────
             if (imgComp != null)
             {
+                el.HasImage   = true;
+                el.Raycast    = imgComp.raycastTarget;
                 el.Color      = imgComp.color;
                 el.ImageType  = imgComp.type;
                 el.FillMethod = imgComp.fillMethod;
@@ -130,12 +147,95 @@ namespace Html5Build.Editor
                 if (imgComp.sprite != null)
                 {
                     string path = AssetDatabase.GetAssetPath(imgComp.sprite);
-                    if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
+                    if (!string.IsNullOrEmpty(path))
                     {
                         el.SpritePath   = path;
                         el.SpriteBorder  = imgComp.sprite.border; // x=left, y=bottom, z=right, w=top
                         el.SpriteWidth   = imgComp.sprite.rect.width;
                         el.SpriteHeight  = imgComp.sprite.rect.height;
+                    }
+                }
+            }
+
+            // ── HtmlAction ────────────────────────────────────────────────────
+            // Read via SerializedObject — avoids a hard compile-time reference to
+            // the game assembly (HtmlAction lives in Assembly-CSharp, not here).
+            foreach (var comp in t.GetComponents<UnityEngine.Component>())
+            {
+                if (comp == null || comp.GetType().Name != "HtmlAction") continue;
+                var compSo = new UnityEditor.SerializedObject(comp);
+                var prop   = compSo.FindProperty("action");
+                if (prop != null && prop.propertyType == UnityEditor.SerializedPropertyType.String
+                    && !string.IsNullOrEmpty(prop.stringValue))
+                    el.HtmlAction = prop.stringValue.Trim();
+                break;
+            }
+
+            // ── Tweening ──────────────────────────────────────────────────────
+            foreach (var comp in t.GetComponents<UnityEngine.Component>())
+            {
+                if (comp == null || comp.GetType().Name != "Tweening") continue;
+                el.TweenConfig = ReadTweenConfig(comp);
+                break;
+            }
+
+            // ── Button state colors + OnClick wiring ─────────────────────────
+            if (btnComp != null)
+            {
+                var cols = btnComp.colors;
+                el.BtnNormalColor      = cols.normalColor;
+                el.BtnHighlightedColor = cols.highlightedColor;
+                el.BtnPressedColor     = cols.pressedColor;
+                el.BtnDisabledColor    = cols.disabledColor;
+                el.BtnColorMultiplier  = cols.colorMultiplier;
+                el.BtnFadeDuration     = cols.fadeDuration;
+                el.BtnInteractable     = btnComp.interactable;
+
+                // Read persistent OnClick calls via SerializedObject so we get
+                // method name, target object name, and all argument values.
+                var so    = new UnityEditor.SerializedObject(btnComp);
+                var calls = so.FindProperty("m_OnClick.m_PersistentCalls.m_Calls");
+                if (calls != null)
+                {
+                    for (int i = 0; i < calls.arraySize; i++)
+                    {
+                        var c     = calls.GetArrayElementAtIndex(i);
+                        int state = c.FindPropertyRelative("m_CallState").intValue;
+                        if (state == 1) continue; // Off — skip disabled listeners
+
+                        var call = new OnClickCall
+                        {
+                            MethodName = c.FindPropertyRelative("m_MethodName").stringValue,
+                            StringArg  = c.FindPropertyRelative("m_Arguments.m_StringArgument").stringValue,
+                            BoolArg    = c.FindPropertyRelative("m_Arguments.m_BoolArgument").boolValue,
+                            IntArg     = c.FindPropertyRelative("m_Arguments.m_IntArgument").intValue,
+                            FloatArg   = c.FindPropertyRelative("m_Arguments.m_FloatArgument").floatValue,
+                        };
+
+                        var targetObj = c.FindPropertyRelative("m_Target").objectReferenceValue;
+                        if (targetObj != null)
+                        {
+                            string rawTarget = targetObj is GameObject go
+                                ? go.name
+                                : ((Component)targetObj).gameObject.name;
+                            // Prefix SetActive targets so they resolve to the correct canvas's element
+                            call.TargetName = (call.MethodName == "SetActive" && !string.IsNullOrEmpty(prefix))
+                                ? prefix + rawTarget
+                                : rawTarget;
+
+                            // For methods with no arg (e.g. LinkButton.Open), read
+                            // the component's serialized 'url' field as the string arg.
+                            if (string.IsNullOrEmpty(call.StringArg) && targetObj is Component comp)
+                            {
+                                var compSo  = new UnityEditor.SerializedObject(comp);
+                                var urlProp = compSo.FindProperty("url");
+                                if (urlProp != null && urlProp.propertyType == UnityEditor.SerializedPropertyType.String)
+                                    call.StringArg = urlProp.stringValue;
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(call.MethodName))
+                            el.OnClickCalls.Add(call);
                     }
                 }
             }
@@ -148,6 +248,7 @@ namespace Html5Build.Editor
                 el.TextContent = tmpText.text;
                 el.TextColor   = tmpText.color;
                 el.FontSize    = tmpText.fontSize;
+                el.Raycast     = tmpText.raycastTarget;
                 ReadTmpAlign(tmpText.alignment, out el.TextAlignH, out el.TextAlignV);
             }
             else if (legacyText != null)
@@ -155,15 +256,19 @@ namespace Html5Build.Editor
                 el.TextContent = legacyText.text;
                 el.TextColor   = legacyText.color;
                 el.FontSize    = legacyText.fontSize;
+                el.Raycast     = legacyText.raycastTarget;
                 el.TextAlignH  = LegacyAlignH(legacyText.alignment);
                 el.TextAlignV  = LegacyAlignV(legacyText.alignment);
             }
 
+            // Button overrides raycast — Button component itself is always interactive
+            if (btnComp != null) el.Raycast = btnComp.interactable;
+
             list.Add(el);
 
-            // Recurse — no parent position tracking needed (calc % handles it)
+            // Recurse — pass prefix down so all descendants stay namespaced
             foreach (Transform child in t)
-                ReadElement(child, el.Children);
+                ReadElement(child, el.Children, prefix);
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -226,11 +331,82 @@ namespace Html5Build.Editor
             (a == TextAnchor.UpperLeft || a == TextAnchor.UpperCenter || a == TextAnchor.UpperRight) ? "flex-start" :
             (a == TextAnchor.LowerLeft || a == TextAnchor.LowerCenter || a == TextAnchor.LowerRight) ? "flex-end" : "center";
 
-        private static Canvas FindRootCanvas()
+        private static List<Canvas> FindRootCanvases()
         {
+            var result = new List<Canvas>();
             foreach (var c in UnityEngine.Object.FindObjectsOfType<Canvas>())
-                if (c.isRootCanvas) return c;
-            return null;
+                if (c.isRootCanvas) result.Add(c);
+            // Sort by sibling index so the order matches the Unity hierarchy
+            result.Sort((a, b) => a.transform.GetSiblingIndex().CompareTo(b.transform.GetSiblingIndex()));
+            return result;
         }
+
+        // ── Tweening component reader ─────────────────────────────────────────
+        private static TweenConfig ReadTweenConfig(Component comp)
+        {
+            var so  = new SerializedObject(comp);
+            var cfg = new TweenConfig
+            {
+                AutoPlay        = so.FindProperty("autoPlay")?.boolValue        ?? false,
+                NumberAnimArray = so.FindProperty("numberAnimArray")?.intValue  ?? -1,
+                Loop            = so.FindProperty("loop")?.boolValue            ?? false,
+                Yoyo            = so.FindProperty("yoyo")?.boolValue            ?? false,
+                Repeat          = so.FindProperty("repeat")?.intValue           ?? 0,
+            };
+
+            var tweenDataProp = so.FindProperty("tweenData");
+            if (tweenDataProp == null) return cfg;
+
+            for (int i = 0; i < tweenDataProp.arraySize; i++)
+            {
+                var dataEl = tweenDataProp.GetArrayElementAtIndex(i);
+                var item   = new TweenDataItem
+                {
+                    Type       = ComponentTypeToStr(dataEl.FindPropertyRelative("type")?.intValue ?? 0),
+                    StartPoint = dataEl.FindPropertyRelative("startPoint")?.vector3Value ?? Vector3.zero,
+                    Loop       = dataEl.FindPropertyRelative("loop")?.boolValue          ?? false,
+                    Yoyo       = dataEl.FindPropertyRelative("yoyo")?.boolValue          ?? false,
+                };
+
+                var seqProp = dataEl.FindPropertyRelative("sequence");
+                if (seqProp != null)
+                {
+                    for (int j = 0; j < seqProp.arraySize; j++)
+                    {
+                        var p = seqProp.GetArrayElementAtIndex(j);
+                        item.Sequence.Add(new TweenPathItem
+                        {
+                            Duration = p.FindPropertyRelative("duration")?.floatValue   ?? 1f,
+                            Delay    = p.FindPropertyRelative("delay")?.floatValue      ?? 0f,
+                            Ease     = EaseIntToStr(p.FindPropertyRelative("ease")?.intValue ?? 0),
+                            WayPoint = p.FindPropertyRelative("wayPoint")?.vector3Value ?? Vector3.zero,
+                        });
+                    }
+                }
+
+                cfg.TweenData.Add(item);
+            }
+
+            return cfg;
+        }
+
+        // ComponentType enum order: Position=0, Rotation=1, Scale=2, Opacity=3, CamShake=4, PositionUI=5, TextFade=6
+        private static readonly string[] _compTypes =
+            { "Position", "Rotation", "Scale", "Opacity", "CamShake", "PositionUI", "TextFade" };
+        private static string ComponentTypeToStr(int i) =>
+            (i >= 0 && i < _compTypes.Length) ? _compTypes[i] : "Position";
+
+        // DOTween Ease underlying int values (Linear=0, InSine=1, OutSine=2 … OutBounce=29 …)
+        private static readonly string[] _easeNames =
+        {
+            "Linear","InSine","OutSine","InOutSine","InQuad","OutQuad","InOutQuad",
+            "InCubic","OutCubic","InOutCubic","InQuart","OutQuart","InOutQuart",
+            "InQuint","OutQuint","InOutQuint","InExpo","OutExpo","InOutExpo",
+            "InCirc","OutCirc","InOutCirc","InElastic","OutElastic","InOutElastic",
+            "InBack","OutBack","InOutBack","InBounce","OutBounce","InOutBounce",
+            "Flash","Flash","Flash","Linear","Linear","Flash"
+        };
+        private static string EaseIntToStr(int i) =>
+            (i >= 0 && i < _easeNames.Length) ? _easeNames[i] : "Linear";
     }
 }
