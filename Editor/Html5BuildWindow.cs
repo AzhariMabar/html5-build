@@ -12,7 +12,7 @@ namespace Html5Build.Editor
         private Tab         _tab;
         private Vector2     _scroll;
         private CanvasModel _model;
-        private string      _folderName   = "build";
+        private string      _outputPath   = "build";
         private string      _lastBuildPath;
         private bool        _busy;
         private string      _status;
@@ -127,16 +127,23 @@ namespace Html5Build.Editor
         {
             Section("Output", () =>
             {
-                _folderName = EditorGUILayout.TextField("Folder Name", _folderName);
-                string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-                string fullPath    = Path.Combine(projectRoot, _folderName.Trim());
-                EditorGUILayout.LabelField("Path", fullPath, EditorStyles.miniLabel);
+                EditorGUILayout.BeginHorizontal();
+                _outputPath = EditorGUILayout.TextField("Output Path", _outputPath);
+                if (GUILayout.Button("…", GUILayout.Width(28)))
+                {
+                    string chosen = EditorUtility.OpenFolderPanel("Choose Output Folder", ResolvedPath(), "");
+                    if (!string.IsNullOrEmpty(chosen))
+                        _outputPath = chosen;
+                }
+                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.LabelField("→", ResolvedPath(), EditorStyles.miniLabel);
             });
 
             EditorGUILayout.Space(4);
+            string folderLabel = Path.GetFileName(ResolvedPath().TrimEnd(Path.DirectorySeparatorChar));
             Section("Output Structure", () =>
             {
-                EditorGUILayout.LabelField("/" + _folderName,  EditorStyles.miniLabel);
+                EditorGUILayout.LabelField("/" + folderLabel,  EditorStyles.miniLabel);
                 EditorGUILayout.LabelField("  index.html",     EditorStyles.miniLabel);
                 EditorGUILayout.LabelField("  app.js",         EditorStyles.miniLabel);
                 EditorGUILayout.LabelField("  /src",           EditorStyles.miniLabel);
@@ -155,7 +162,7 @@ namespace Html5Build.Editor
 
             EditorGUILayout.Space(4);
             bool canOpen = !string.IsNullOrEmpty(_lastBuildPath) &&
-                           File.Exists(Path.Combine(_lastBuildPath, "index.html"));
+                           System.IO.File.Exists(Path.Combine(_lastBuildPath, "index.html"));
             GUI.enabled = canOpen;
             if (GUILayout.Button("Open in Browser", GUILayout.Height(30)))
                 Application.OpenURL("file://" + Path.Combine(_lastBuildPath, "index.html").Replace("\\", "/"));
@@ -188,6 +195,15 @@ namespace Html5Build.Editor
             Repaint();
         }
 
+        private string ResolvedPath()
+        {
+            string p = (_outputPath ?? "build").Trim();
+            if (string.IsNullOrEmpty(p)) p = "build";
+            if (Path.IsPathRooted(p)) return p;
+            string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+            return Path.Combine(projectRoot, p);
+        }
+
         private void DoBuild()
         {
             _busy = true;
@@ -197,8 +213,7 @@ namespace Html5Build.Editor
                 // Always re-scan for freshest data
                 _model = SceneReader.ReadActiveScene();
 
-                string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-                string outPath     = Path.Combine(projectRoot, _folderName.Trim());
+                string outPath = ResolvedPath();
 
                 Html5Exporter.Export(_model, outPath);
 

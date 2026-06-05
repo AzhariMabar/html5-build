@@ -11,6 +11,8 @@ namespace Html5Build.Editor
             if (string.IsNullOrWhiteSpace(outputPath))
                 throw new Exception("Output path is empty.");
 
+            if (Directory.Exists(outputPath))
+                Directory.Delete(outputPath, recursive: true);
             Directory.CreateDirectory(outputPath);
 
             string srcPath = Path.Combine(outputPath, "src");
