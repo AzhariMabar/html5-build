@@ -1,8 +1,8 @@
 {
   "name": "com.html5build.exporter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "displayName": "HTML5 Build",
-  "description": "Export Unity Canvas UI to responsive HTML5 — reads anchors, pivot, size from scene automatically.",
+  "description": "Export Unity Canvas UI and interactive controls to responsive HTML5.",
   "unity": "2022.1",
   "author": {
     "name": "HTML5 Build",

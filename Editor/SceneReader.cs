@@ -32,14 +32,20 @@ namespace Html5Build.Editor
     public static class SceneReader
     {
         private static int _refW, _refH;
+        private static readonly Dictionary<GameObject, string> _elementIds =
+            new Dictionary<GameObject, string>();
 
         public static CanvasModel ReadActiveScene()
         {
-            Canvas.ForceUpdateCanvases();
-
             var roots = FindRootCanvases();
             if (roots.Count == 0)
                 throw new Exception("No root Canvas found in the active scene.");
+
+            foreach (var root in roots)
+                LayoutRebuilder.ForceRebuildLayoutImmediate(root.GetComponent<RectTransform>());
+            Canvas.ForceUpdateCanvases();
+
+            BuildElementIds(roots);
 
             // Reference resolution from the first canvas that has a CanvasScaler
             _refW = 1080; _refH = 1920;
@@ -95,6 +101,7 @@ namespace Html5Build.Editor
 
             var el = new UiElement
             {
+                Id               = _elementIds[t.gameObject],
                 Name             = prefix + t.gameObject.name,
                 Active           = t.gameObject.activeSelf,
                 AnchorMin        = rt.anchorMin,
@@ -123,14 +130,38 @@ namespace Html5Build.Editor
 
             // ── Component type ────────────────────────────────────────────────
             var imgComp    = t.GetComponent<Image>();
+            var rawImgComp = t.GetComponent<RawImage>();
             var btnComp    = t.GetComponent<Button>();
+            var sliderComp = t.GetComponent<Slider>();
+            var toggleComp = t.GetComponent<Toggle>();
+            var dropdownComp = t.GetComponent<Dropdown>();
+            var tmpDropdown = t.GetComponent<TMP_Dropdown>();
+            var inputComp = t.GetComponent<InputField>();
+            var tmpInput = t.GetComponent<TMP_InputField>();
+            var scrollComp = t.GetComponent<ScrollRect>();
             var tmpText    = t.GetComponent<TMP_Text>();
             var legacyText = t.GetComponent<Text>();
 
-            if (btnComp    != null) el.Type = "button";
+            if (tmpInput != null || inputComp != null) el.Type = "input";
+            else if (sliderComp != null) el.Type = "slider";
+            else if (toggleComp != null) el.Type = "toggle";
+            else if (tmpDropdown != null || dropdownComp != null) el.Type = "dropdown";
+            else if (scrollComp != null) el.Type = "scroll";
+            else if (btnComp    != null) el.Type = "button";
             else if (tmpText    != null || legacyText != null) el.Type = "text";
-            else if (imgComp   != null) el.Type = "image";
+            else if (imgComp != null || rawImgComp != null) el.Type = "image";
             else                       el.Type = "container";
+
+            el.IsRectMask = t.GetComponent<RectMask2D>() != null;
+            el.IsMask = t.GetComponent<Mask>() != null;
+
+            var canvasGroup = t.GetComponent<CanvasGroup>();
+            if (canvasGroup != null)
+            {
+                el.CanvasGroupAlpha = canvasGroup.alpha;
+                el.CanvasGroupInteractable = canvasGroup.interactable;
+                el.CanvasGroupBlocksRaycasts = canvasGroup.blocksRaycasts;
+            }
 
             // ── Visuals ───────────────────────────────────────────────────────
             if (imgComp != null)
@@ -155,6 +186,115 @@ namespace Html5Build.Editor
                         el.SpriteHeight  = imgComp.sprite.rect.height;
                     }
                 }
+            }
+            else if (rawImgComp != null)
+            {
+                el.HasImage = true;
+                el.Raycast = rawImgComp.raycastTarget;
+                el.Color = rawImgComp.color;
+                el.ImageType = Image.Type.Simple;
+
+                if (rawImgComp.texture != null)
+                    el.SpritePath = AssetDatabase.GetAssetPath(rawImgComp.texture);
+            }
+
+            // ── Input fields ────────────────────────────────────────────────
+            if (tmpInput != null)
+            {
+                el.InputText = tmpInput.text;
+                el.InputPlaceholder = (tmpInput.placeholder as TMP_Text)?.text ?? "";
+                el.InputCharacterLimit = tmpInput.characterLimit;
+                el.InputReadOnly = tmpInput.readOnly;
+                el.InputMultiline = tmpInput.lineType != TMP_InputField.LineType.SingleLine;
+                el.InputPassword = tmpInput.contentType == TMP_InputField.ContentType.Password
+                    || tmpInput.contentType == TMP_InputField.ContentType.Pin;
+                el.InputContentType = InputContentType(tmpInput.contentType);
+                el.Raycast = tmpInput.interactable;
+
+                if (tmpInput.textComponent != null)
+                {
+                    el.FontSize = tmpInput.textComponent.fontSize;
+                    el.TextColor = tmpInput.textComponent.color;
+                    ReadTmpAlign(tmpInput.textComponent.alignment, out el.TextAlignH, out el.TextAlignV);
+                }
+
+                ReadPersistentCalls(tmpInput, "m_OnValueChanged", el.OnValueChangedCalls, prefix);
+                ReadPersistentCalls(tmpInput, "m_OnEndEdit", el.OnEndEditCalls, prefix);
+            }
+            else if (inputComp != null)
+            {
+                el.InputText = inputComp.text;
+                el.InputPlaceholder = inputComp.placeholder is Text p ? p.text : "";
+                el.InputCharacterLimit = inputComp.characterLimit;
+                el.InputReadOnly = inputComp.readOnly;
+                el.InputMultiline = inputComp.lineType != InputField.LineType.SingleLine;
+                el.InputPassword = inputComp.contentType == InputField.ContentType.Password
+                    || inputComp.contentType == InputField.ContentType.Pin;
+                el.InputContentType = InputContentType(inputComp.contentType);
+                el.Raycast = inputComp.interactable;
+
+                if (inputComp.textComponent != null)
+                {
+                    el.FontSize = inputComp.textComponent.fontSize;
+                    el.TextColor = inputComp.textComponent.color;
+                    el.TextAlignH = LegacyAlignH(inputComp.textComponent.alignment);
+                    el.TextAlignV = LegacyAlignV(inputComp.textComponent.alignment);
+                }
+
+                ReadPersistentCalls(inputComp, "m_OnValueChanged", el.OnValueChangedCalls, prefix);
+                ReadPersistentCalls(inputComp, "m_OnEndEdit", el.OnEndEditCalls, prefix);
+            }
+
+            // ── Slider / Toggle / Dropdown / ScrollRect ─────────────────────
+            if (sliderComp != null)
+            {
+                el.SliderMin = sliderComp.minValue;
+                el.SliderMax = sliderComp.maxValue;
+                el.SliderValue = sliderComp.value;
+                el.SliderWholeNumbers = sliderComp.wholeNumbers;
+                el.SliderDirection = (int)sliderComp.direction;
+                el.Raycast = sliderComp.interactable;
+
+                var fillImage = sliderComp.fillRect != null
+                    ? sliderComp.fillRect.GetComponent<Image>()
+                    : null;
+                if (fillImage != null) el.SliderFillColor = fillImage.color;
+                ReadPersistentCalls(sliderComp, "m_OnValueChanged", el.OnValueChangedCalls, prefix);
+            }
+
+            if (toggleComp != null)
+            {
+                el.ToggleIsOn = toggleComp.isOn;
+                el.ToggleInteractable = toggleComp.interactable;
+                el.Raycast = toggleComp.interactable;
+                ReadPersistentCalls(toggleComp, "onValueChanged", el.OnValueChangedCalls, prefix);
+            }
+
+            if (tmpDropdown != null)
+            {
+                el.DropdownValue = tmpDropdown.value;
+                el.DropdownInteractable = tmpDropdown.interactable;
+                foreach (var option in tmpDropdown.options)
+                    el.DropdownOptions.Add(option.text);
+                el.Raycast = tmpDropdown.interactable;
+                ReadPersistentCalls(tmpDropdown, "m_OnValueChanged", el.OnValueChangedCalls, prefix);
+            }
+            else if (dropdownComp != null)
+            {
+                el.DropdownValue = dropdownComp.value;
+                el.DropdownInteractable = dropdownComp.interactable;
+                foreach (var option in dropdownComp.options)
+                    el.DropdownOptions.Add(option.text);
+                el.Raycast = dropdownComp.interactable;
+                ReadPersistentCalls(dropdownComp, "m_OnValueChanged", el.OnValueChangedCalls, prefix);
+            }
+
+            if (scrollComp != null)
+            {
+                el.ScrollHorizontal = scrollComp.horizontal;
+                el.ScrollVertical = scrollComp.vertical;
+                el.ScrollSensitivity = scrollComp.scrollSensitivity;
+                el.Raycast = true;
             }
 
             // ── HtmlAction ────────────────────────────────────────────────────
@@ -206,6 +346,7 @@ namespace Html5Build.Editor
                         var call = new OnClickCall
                         {
                             MethodName = c.FindPropertyRelative("m_MethodName").stringValue,
+                            Mode       = c.FindPropertyRelative("m_Mode").intValue,
                             StringArg  = c.FindPropertyRelative("m_Arguments.m_StringArgument").stringValue,
                             BoolArg    = c.FindPropertyRelative("m_Arguments.m_BoolArgument").boolValue,
                             IntArg     = c.FindPropertyRelative("m_Arguments.m_IntArgument").intValue,
@@ -215,13 +356,15 @@ namespace Html5Build.Editor
                         var targetObj = c.FindPropertyRelative("m_Target").objectReferenceValue;
                         if (targetObj != null)
                         {
-                            string rawTarget = targetObj is GameObject go
-                                ? go.name
-                                : ((Component)targetObj).gameObject.name;
+                            var targetGo = targetObj is GameObject go
+                                ? go
+                                : ((Component)targetObj).gameObject;
+                            string rawTarget = targetGo.name;
                             // Prefix SetActive targets so they resolve to the correct canvas's element
-                            call.TargetName = (call.MethodName == "SetActive" && !string.IsNullOrEmpty(prefix))
-                                ? prefix + rawTarget
-                                : rawTarget;
+                            call.TargetName = call.MethodName == "SetActive"
+                                && _elementIds.TryGetValue(targetGo, out string targetId)
+                                    ? targetId
+                                    : (!string.IsNullOrEmpty(prefix) ? prefix + rawTarget : rawTarget);
 
                             // For methods with no arg (e.g. LinkButton.Open), read
                             // the component's serialized 'url' field as the string arg.
@@ -331,6 +474,77 @@ namespace Html5Build.Editor
             (a == TextAnchor.UpperLeft || a == TextAnchor.UpperCenter || a == TextAnchor.UpperRight) ? "flex-start" :
             (a == TextAnchor.LowerLeft || a == TextAnchor.LowerCenter || a == TextAnchor.LowerRight) ? "flex-end" : "center";
 
+        private static string InputContentType(TMP_InputField.ContentType type)
+        {
+            switch (type)
+            {
+                case TMP_InputField.ContentType.IntegerNumber:
+                case TMP_InputField.ContentType.DecimalNumber:
+                    return "number";
+                case TMP_InputField.ContentType.EmailAddress:
+                    return "email";
+                default:
+                    return "text";
+            }
+        }
+
+        private static string InputContentType(InputField.ContentType type)
+        {
+            switch (type)
+            {
+                case InputField.ContentType.IntegerNumber:
+                case InputField.ContentType.DecimalNumber:
+                    return "number";
+                case InputField.ContentType.EmailAddress:
+                    return "email";
+                default:
+                    return "text";
+            }
+        }
+
+        private static void ReadPersistentCalls(
+            Component component,
+            string eventProperty,
+            List<OnClickCall> output,
+            string prefix)
+        {
+            var so = new SerializedObject(component);
+            var calls = so.FindProperty(eventProperty + ".m_PersistentCalls.m_Calls");
+            if (calls == null) return;
+
+            for (int i = 0; i < calls.arraySize; i++)
+            {
+                var c = calls.GetArrayElementAtIndex(i);
+                int state = c.FindPropertyRelative("m_CallState").intValue;
+                if (state == 1) continue;
+
+                var call = new OnClickCall
+                {
+                    MethodName = c.FindPropertyRelative("m_MethodName").stringValue,
+                    Mode = c.FindPropertyRelative("m_Mode").intValue,
+                    StringArg = c.FindPropertyRelative("m_Arguments.m_StringArgument").stringValue,
+                    BoolArg = c.FindPropertyRelative("m_Arguments.m_BoolArgument").boolValue,
+                    IntArg = c.FindPropertyRelative("m_Arguments.m_IntArgument").intValue,
+                    FloatArg = c.FindPropertyRelative("m_Arguments.m_FloatArgument").floatValue,
+                };
+
+                var targetObj = c.FindPropertyRelative("m_Target").objectReferenceValue;
+                if (targetObj != null)
+                {
+                    var targetGo = targetObj is GameObject go
+                        ? go
+                        : ((Component)targetObj).gameObject;
+                    call.TargetName = call.MethodName == "SetActive"
+                        && _elementIds.TryGetValue(targetGo, out string targetId)
+                            ? targetId
+                            : (!string.IsNullOrEmpty(prefix) ? prefix + targetGo.name : targetGo.name);
+                }
+
+                if (!string.IsNullOrEmpty(call.MethodName))
+                    output.Add(call);
+            }
+        }
+
         private static List<Canvas> FindRootCanvases()
         {
             var result = new List<Canvas>();
@@ -340,6 +554,55 @@ namespace Html5Build.Editor
             result.Sort((a, b) => a.transform.GetSiblingIndex().CompareTo(b.transform.GetSiblingIndex()));
             return result;
         }
+
+        private static void BuildElementIds(List<Canvas> roots)
+        {
+            _elementIds.Clear();
+            var nameCounts = new Dictionary<string, int>();
+
+            for (int ci = 0; ci < roots.Count; ci++)
+            {
+                string prefix = ci == 0 ? "" : $"c{ci}_";
+                foreach (var rt in roots[ci].GetComponentsInChildren<RectTransform>(true))
+                {
+                    if (rt == roots[ci].transform) continue;
+                    string key = prefix + rt.gameObject.name;
+                    nameCounts.TryGetValue(key, out int count);
+                    nameCounts[key] = count + 1;
+                }
+            }
+
+            for (int ci = 0; ci < roots.Count; ci++)
+            {
+                string prefix = ci == 0 ? "" : $"c{ci}_";
+                foreach (var rt in roots[ci].GetComponentsInChildren<RectTransform>(true))
+                {
+                    if (rt == roots[ci].transform) continue;
+                    string key = prefix + rt.gameObject.name;
+                    string id = nameCounts[key] == 1
+                        ? SafeId(key)
+                        : SafeId(prefix + HierarchyPath(rt, roots[ci].transform));
+                    _elementIds[rt.gameObject] = id;
+                }
+            }
+        }
+
+        private static string HierarchyPath(Transform t, Transform root)
+        {
+            var parts = new List<string>();
+            while (t != null && t != root)
+            {
+                parts.Add($"{t.gameObject.name}_{t.GetSiblingIndex()}");
+                t = t.parent;
+            }
+            parts.Reverse();
+            return string.Join("__", parts);
+        }
+
+        private static string SafeId(string value) =>
+            string.IsNullOrEmpty(value)
+                ? "el"
+                : System.Text.RegularExpressions.Regex.Replace(value, @"[^a-zA-Z0-9_\-]", "_");
 
         // ── Tweening component reader ─────────────────────────────────────────
         private static TweenConfig ReadTweenConfig(Component comp)

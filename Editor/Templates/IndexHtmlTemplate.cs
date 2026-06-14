@@ -34,6 +34,16 @@ namespace Html5Build.Editor
             sb.AppendLine("        .ui-btn { appearance: none; -webkit-appearance: none; border: none; outline: none; cursor: pointer; padding: 0; background: transparent; pointer-events: auto; }");
             sb.AppendLine("        .ui-img > img { width: 100%; height: 100%; object-fit: fill; display: block; }");
             sb.AppendLine("        .ui-text { overflow: hidden; white-space: pre-wrap; word-break: break-word; }");
+            sb.AppendLine("        .ui-input, .ui-dropdown { appearance: none; -webkit-appearance: none; border: none; outline: none; padding: calc(8px * var(--rs)) calc(12px * var(--rs)); pointer-events: auto; }");
+            sb.AppendLine("        textarea.ui-input { resize: none; }");
+            sb.AppendLine("        .ui-input::placeholder { color: currentColor; opacity: .55; }");
+            sb.AppendLine("        .ui-slider { appearance: none; -webkit-appearance: none; border: none; outline: none; background: transparent; pointer-events: auto; accent-color: var(--slider-fill, #fff); }");
+            sb.AppendLine("        .ui-slider::-webkit-slider-runnable-track { height: 100%; background: rgba(255,255,255,.25); border-radius: 999px; }");
+            sb.AppendLine("        .ui-slider::-webkit-slider-thumb { -webkit-appearance: none; width: calc(20px * var(--rs)); height: calc(20px * var(--rs)); margin-top: calc(-10px * var(--rs)); border: 0; border-radius: 50%; background: var(--slider-fill, #fff); }");
+            sb.AppendLine("        .ui-slider[data-vertical='true'] { writing-mode: vertical-lr; direction: rtl; }");
+            sb.AppendLine("        .ui-toggle { display: flex; align-items: center; gap: calc(8px * var(--rs)); pointer-events: auto; }");
+            sb.AppendLine("        .ui-toggle > input { width: 100%; height: 100%; margin: 0; accent-color: currentColor; cursor: pointer; }");
+            sb.AppendLine("        .ui-scroll { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; pointer-events: auto; }");
             WriteButtonStateStyles(sb, m.Children);
             sb.AppendLine("    </style>");
             sb.AppendLine("</head>");
@@ -56,11 +66,72 @@ namespace Html5Build.Editor
             string pad = Pad(indent);
             foreach (var el in elements)
             {
-                string id    = SafeId(el.Name);
+                string id    = ElementId(el);
                 string style = BuildStyle(el);
 
                 switch (el.Type)
                 {
+                    case "input":
+                    {
+                        string type = el.InputPassword ? "password" : el.InputContentType;
+                        string maxAttr = el.InputCharacterLimit > 0 ? $" maxlength=\"{el.InputCharacterLimit}\"" : "";
+                        string readOnlyAttr = el.InputReadOnly ? " readonly" : "";
+                        if (el.InputMultiline)
+                        {
+                            sb.AppendLine($"{pad}<textarea id=\"{id}\" class=\"ui ui-input\" data-unity-control=\"input\"{maxAttr}{readOnlyAttr} placeholder=\"{AttrEsc(el.InputPlaceholder ?? "")}\" style=\"{style}\">{HtmlEsc(el.InputText ?? "")}</textarea>");
+                        }
+                        else
+                        {
+                            sb.AppendLine($"{pad}<input id=\"{id}\" class=\"ui ui-input\" data-unity-control=\"input\" type=\"{type}\"{maxAttr}{readOnlyAttr} value=\"{AttrEsc(el.InputText ?? "")}\" placeholder=\"{AttrEsc(el.InputPlaceholder ?? "")}\" style=\"{style}\" />");
+                        }
+                        break;
+                    }
+
+                    case "slider":
+                    {
+                        string step = el.SliderWholeNumbers ? "1" : "any";
+                        bool vertical = el.SliderDirection == 2 || el.SliderDirection == 3;
+                        bool reversed = el.SliderDirection == 1 || el.SliderDirection == 3;
+                        string sliderStyle = style
+                            + $"--slider-fill:{CssRgba(el.SliderFillColor)};"
+                            + (reversed && !vertical ? "direction:rtl;" : "");
+                        sb.AppendLine($"{pad}<input id=\"{id}\" class=\"ui ui-slider\" data-unity-control=\"slider\" data-vertical=\"{vertical.ToString().ToLowerInvariant()}\" type=\"range\" min=\"{el.SliderMin:F4}\" max=\"{el.SliderMax:F4}\" step=\"{step}\" value=\"{el.SliderValue:F4}\" style=\"{sliderStyle}\" />");
+                        break;
+                    }
+
+                    case "toggle":
+                    {
+                        string checkedAttr = el.ToggleIsOn ? " checked" : "";
+                        string disabledAttr = el.ToggleInteractable ? "" : " disabled";
+                        sb.AppendLine($"{pad}<label id=\"{id}\" class=\"ui ui-toggle\" data-unity-control=\"toggle\" style=\"{style}\">");
+                        sb.AppendLine($"{pad}    <input type=\"checkbox\"{checkedAttr}{disabledAttr} />");
+                        sb.AppendLine($"{pad}</label>");
+                        break;
+                    }
+
+                    case "dropdown":
+                    {
+                        string disabledAttr = el.DropdownInteractable ? "" : " disabled";
+                        sb.AppendLine($"{pad}<select id=\"{id}\" class=\"ui ui-dropdown\" data-unity-control=\"dropdown\"{disabledAttr} style=\"{style}\">");
+                        for (int i = 0; i < el.DropdownOptions.Count; i++)
+                        {
+                            string selected = i == el.DropdownValue ? " selected" : "";
+                            sb.AppendLine($"{pad}    <option value=\"{i}\"{selected}>{HtmlEsc(el.DropdownOptions[i] ?? "")}</option>");
+                        }
+                        sb.AppendLine($"{pad}</select>");
+                        break;
+                    }
+
+                    case "scroll":
+                    {
+                        string overflowX = el.ScrollHorizontal ? "auto" : "hidden";
+                        string overflowY = el.ScrollVertical ? "auto" : "hidden";
+                        sb.AppendLine($"{pad}<div id=\"{id}\" class=\"ui ui-scroll\" data-unity-control=\"scroll\" style=\"{style}overflow-x:{overflowX};overflow-y:{overflowY};\">");
+                        WriteElements(sb, el.Children, indent + 1);
+                        sb.AppendLine($"{pad}</div>");
+                        break;
+                    }
+
                     case "button":
                     {
                         // All buttons: image on a separate .ui-btn-bg layer so CSS filter (hover/active)
@@ -109,6 +180,15 @@ namespace Html5Build.Editor
             sb.Append($"top:{el.CssTop};");
             sb.Append($"width:{el.CssWidth};");
             sb.Append($"height:{el.CssHeight};");
+
+            if (el.IsRectMask || el.IsMask)
+                sb.Append("overflow:hidden;");
+
+            if (el.CanvasGroupAlpha < 0.999f)
+                sb.Append($"opacity:{el.CanvasGroupAlpha:F3};");
+
+            if (!el.CanvasGroupInteractable || !el.CanvasGroupBlocksRaycasts)
+                sb.Append("pointer-events:none;");
 
             bool hasScale = Mathf.Abs(el.ScaleX - 1f) > 0.001f || Mathf.Abs(el.ScaleY - 1f) > 0.001f;
             bool hasRot   = Mathf.Abs(el.Rotation) > 0.01f;
@@ -194,6 +274,13 @@ namespace Html5Build.Editor
                 // Text raycastTarget=true → clickable; false → pass-through (user-select:none always)
                 sb.Append(el.Raycast ? "pointer-events:auto;" : "pointer-events:none;");
                 sb.Append("user-select:none;");
+            }
+
+            if (el.Type == "input" || el.Type == "dropdown")
+            {
+                sb.Append($"color:{CssRgba(el.TextColor)};");
+                sb.Append($"font-size:calc({Mathf.Max(el.FontSize, 14f):F0}px * var(--rs));");
+                sb.Append("font-family:Arial,sans-serif;");
             }
 
             // Non-button elements: only add pointer-events:auto if raycastTarget is on
@@ -310,7 +397,7 @@ namespace Html5Build.Editor
             {
                 if (el.Type == "button")
                 {
-                    string id = SafeId(el.Name);
+                    string id = ElementId(el);
 
                     float normL = Luma(el.BtnNormalColor);
                     if (normL < 0.001f) normL = 1f;
@@ -436,11 +523,17 @@ namespace Html5Build.Editor
         private static string HtmlEsc(string s) =>
             s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
+        private static string AttrEsc(string s) =>
+            HtmlEsc(s).Replace("\"", "&quot;").Replace("'", "&#39;");
+
         private static string Pad(int n)  => new string(' ', n * 4);
 
         private static string SafeId(string s) =>
             string.IsNullOrEmpty(s) ? "el" :
             System.Text.RegularExpressions.Regex.Replace(s, @"[^a-zA-Z0-9_\-]", "_");
+
+        private static string ElementId(UiElement el) =>
+            string.IsNullOrEmpty(el.Id) ? SafeId(el.Name) : el.Id;
 
         private static int R(Color c) => Mathf.RoundToInt(c.r * 255);
         private static int G(Color c) => Mathf.RoundToInt(c.g * 255);
